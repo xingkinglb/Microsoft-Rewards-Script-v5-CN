@@ -657,8 +657,23 @@ $('#btn-config-sync').addEventListener('click', async () => {
     $('#btn-open-' + which).addEventListener('click', () => post('/api/open-folder', { which }).catch(e => toast(e.message, 'err')))
 })
 
-$('#btn-check-update').addEventListener('click', async () => {
-    const box = $('#update-result')
+$('#btn-shutdown').addEventListener('click', async () => {
+    const msg = state.running
+        ? '奖励任务正在运行，停止管理界面会同时结束任务。确定继续？'
+        : '确定停止管理界面服务？停止后需要重新双击「启动管理界面.bat」才能再次打开。'
+    if (!confirm(msg)) return
+    try {
+        await post('/api/shutdown', {})
+        document.body.innerHTML =
+            '<div style="display:grid;place-items:center;height:100vh;text-align:center;font-family:sans-serif">' +
+            '<div><h2 style="margin-bottom:12px;font-weight:600">管理界面已停止</h2>' +
+            '<p style="color:#8b93a3;font-size:13px">可以关闭此页面了。<br>需要再次使用时，双击项目目录下的「启动管理界面.bat」。</p></div></div>'
+    } catch (error) {
+        toast(error.message, 'err')
+    }
+})
+
+$('#btn-check-update').addEventListener('click', async () => {    const box = $('#update-result')
     box.innerHTML = '<span class="tag">检查中…</span>'
     try {
         const data = await api('/api/update')

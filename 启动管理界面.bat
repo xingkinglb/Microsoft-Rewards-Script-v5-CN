@@ -22,8 +22,20 @@ del /q "%~dp0manager\.run.pid" >nul 2>&1
 goto END
 
 :ALREADY
-rem 已经在运行，直接打开页面即可，不弹提示窗口
 start "" http://127.0.0.1:8899
+echo.
+echo   管理界面已经在运行中
+echo.
+echo   地址: http://127.0.0.1:8899
+echo.
+echo   已在浏览器中打开该地址。
+echo.
+echo   说明: 服务由另一个命令行窗口托管，
+echo         关闭本窗口不会停止它。
+echo         要停止服务，请双击「停止管理界面.bat」，
+echo         或在该窗口按 Ctrl+C。
+echo.
+pause
 exit /b
 
 :NONODE

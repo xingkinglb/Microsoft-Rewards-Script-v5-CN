@@ -678,6 +678,13 @@ const server = http.createServer(async (req, res) => {
             json(res, 200, { ok: true, message: `已清理 ${removed} 个会话文件` })
             return
         }
+        if (pathname === '/api/shutdown' && req.method === 'POST') {
+            json(res, 200, { ok: true, message: '管理界面正在停止' })
+            console.log('')
+            console.log('  收到界面停止指令，正在退出…')
+            setTimeout(() => shutdown(true), 300)
+            return
+        }
 
         json(res, 404, { error: '接口不存在' })
     } catch (error) {
@@ -687,14 +694,21 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
     console.log('')
-    console.log('  Microsoft Rewards v5 · 中文管理界面')
-    console.log(`  地址: http://${HOST}:${PORT}`)
-    console.log(`  程序: ${APP_DIR}`)
-    console.log(`  运行时: ${NODE_EXE}`)
+    console.log('  ┌──────────────────────────────────────────────┐')
+    console.log('  │   Microsoft Rewards v5 · 中文管理界面        │')
+    console.log('  └──────────────────────────────────────────────┘')
+    console.log('')
+    console.log(`  访问地址: http://${HOST}:${PORT}`)
+    console.log(`  程序目录: ${APP_DIR}`)
+    console.log(`  运行时  : ${NODE_EXE}`)
     console.log('')
     cleanupOrphan()
-    console.log('  关闭此窗口 = 关闭管理界面，正在运行的奖励任务会一并结束')
-    console.log('  只关浏览器标签页不会停止管理界面，重新打开上面的地址即可')
+    console.log('  ────────────────────────────────────────────────')
+    console.log('  这个窗口就是服务本体：')
+    console.log('    · 关闭它 = 停止管理界面，正在跑的奖励任务会一并结束')
+    console.log('    · 关掉浏览器网页不影响服务，重新打开地址即可')
+    console.log('    · 按 Ctrl+C 也可以正常退出')
+    console.log('  ────────────────────────────────────────────────')
     console.log('')
 })
 
