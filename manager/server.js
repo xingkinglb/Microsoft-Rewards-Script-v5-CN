@@ -24,6 +24,8 @@ const CONFIG_PATH = path.join(APP_DIR, 'config.json')
 const CONFIG_EXAMPLE = path.join(APP_DIR, 'config.example.json')
 const PKG_PATH = path.join(APP_DIR, 'package.json')
 const LOG_DIR = path.join(__dirname, 'logs')
+const PID_FILE = path.join(__dirname, '.run.pid')
+const RUN_WRAPPER = path.join(__dirname, 'run-wrapper.js')
 const PUBLIC_DIR = path.join(__dirname, 'public')
 const PORT = Number(process.env.MANAGER_PORT || 8899)
 const HOST = '127.0.0.1'
@@ -273,7 +275,8 @@ function startRun(options = {}) {
     const logFile = path.join(LOG_DIR, `run_${timestamp()}.log`)
     const stream = fs.createWriteStream(logFile, { flags: 'a' })
 
-    const child = spawn(NODE_EXE, ['dist/index.js'], {
+    // 通过看门狗启动：管理界面被强制关闭时，任务与浏览器会被一并结束
+    const child = spawn(NODE_EXE, [RUN_WRAPPER, String(process.pid), path.join(APP_DIR, 'dist', 'index.js')], {
         cwd: APP_DIR,
         env: childEnv(),
         windowsHide: true
@@ -287,6 +290,13 @@ function startRun(options = {}) {
         exitCode: null
     }
 
+    // 记录 PID，供管理界面异常退出后清理孤儿进程
+    try {
+        fs.writeFileSync(PID_FILE, String(child.pid), 'utf8')
+    } catch {
+        /* 不影响运行 */
+    }
+
     child.stdout?.on('data', chunk => stream.write(chunk))
     child.stderr?.on('data', chunk => stream.write(chunk))
     attachStream(child, 'run')
@@ -296,11 +306,62 @@ function startRun(options = {}) {
         state.run.exitCode = code
         origPush(`[${nowIso()}] [MAIN] [INFO] MAIN [PROCESS] 进程已退出 | exitCode=${code}`, 'run')
         stream.end()
+        try {
+            fs.rmSync(PID_FILE, { force: true })
+        } catch {
+            /* ignore */
+        }
         broadcast({ type: 'state', running: false, exitCode: code, summary: state.lastSummary })
     })
 
     broadcast({ type: 'state', running: true, startedAt: state.run.startedAt, mode: state.run.mode })
     return state.run
+}
+
+/** 结束整个进程树（含 Chromium 子进程） */
+function killTree(pid) {
+    if (!pid) return
+    try {
+        spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true })
+    } catch {
+        /* ignore */
+    }
+}
+
+/**
+ * 管理界面异常退出后，上一次的机器人进程可能还活着。
+ * 启动时检查 .run.pid，确认是本项目的 node 进程就一并结束，避免残留浏览器。
+ */
+function cleanupOrphan() {
+    if (!fs.existsSync(PID_FILE)) return
+    const pid = Number(fs.readFileSync(PID_FILE, 'utf8').trim())
+    fs.rmSync(PID_FILE, { force: true })
+    if (!pid) return
+    try {
+        process.kill(pid, 0) // 仅探测是否存在
+    } catch {
+        return // 进程已不存在
+    }
+    killTree(pid)
+    console.log(`  已清理上次残留的运行进程 (PID=${pid})`)
+}
+
+/** 退出前结束正在运行的任务，避免留下孤儿进程 */
+function shutdown(signal) {
+    if (isRunning()) {
+        const pid = state.run.proc.pid
+        killTree(pid)
+        console.log(`  已结束正在运行的奖励任务 (PID=${pid})`)
+    }
+    if (state.build) {
+        killTree(state.build.proc.pid)
+    }
+    try {
+        fs.rmSync(PID_FILE, { force: true })
+    } catch {
+        /* ignore */
+    }
+    if (signal) process.exit(0)
 }
 
 function stopRun() {
@@ -631,10 +692,19 @@ server.listen(PORT, HOST, () => {
     console.log(`  程序: ${APP_DIR}`)
     console.log(`  运行时: ${NODE_EXE}`)
     console.log('')
-    console.log('  关闭此窗口即停止管理界面（不会中断正在运行的奖励任务）')
+    cleanupOrphan()
+    console.log('  关闭此窗口 = 关闭管理界面，正在运行的奖励任务会一并结束')
+    console.log('  只关浏览器标签页不会停止管理界面，重新打开上面的地址即可')
     console.log('')
 })
 
 process.on('uncaughtException', error => {
     console.error('[管理界面] 未捕获异常:', error)
 })
+
+// 关闭命令行窗口 / Ctrl+C / 注销时，一并结束子进程，避免留下孤儿
+process.on('SIGINT', () => shutdown(true))
+process.on('SIGBREAK', () => shutdown(true))
+process.on('SIGHUP', () => shutdown(true))
+process.on('SIGTERM', () => shutdown(true))
+process.on('exit', () => shutdown(false))

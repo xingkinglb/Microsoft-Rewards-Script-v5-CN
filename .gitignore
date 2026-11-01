@@ -31,3 +31,6 @@ v5src.zip
 
 # 界面预览截图（含账号信息，不提交）
 manager/preview-*.png
+
+# 运行中的任务 PID
+manager/.run.pid
