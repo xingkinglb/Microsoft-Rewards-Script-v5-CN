@@ -104,7 +104,7 @@ function renderOverview() {
                     a.proxy_url ? ' · 代理已启用' : ''
                 }</span>
                 </div>
-                <span class="tag ${a.password ? 'ok' : 'warn'}">${a.password ? '密码已配置' : '免密/TOTP'}</span>
+                <span class="tag ${a.has_password ? 'ok' : 'warn'}">${a.has_password ? '密码已配置' : '免密/TOTP'}</span>
             </div>`
             )
             .join('')
@@ -255,7 +255,9 @@ function accountCard(acc, index) {
             <div class="field"><label>邮箱 *</label>
                 <input type="text" data-k="email" value="${esc(acc.email || '')}" placeholder="xxx@outlook.com"></div>
             <div class="field"><label>密码</label>
-                <input type="password" data-k="password" value="${esc(acc.password || '')}" placeholder="免密账号留空"></div>
+                <input type="password" data-k="password" value="" placeholder="${
+                    acc.has_password ? '已设置，留空则不修改' : '免密账号可留空'
+                }"></div>
             <div class="field"><label>两步验证密钥（TOTP）</label>
                 <input type="text" data-k="totp_secret" value="${esc(acc.totp_secret || '')}" placeholder="可选，验证器密钥">
                 <span class="hint">不是 6 位动态码，是绑定验证器时的密钥</span></div>
@@ -597,8 +599,11 @@ $('#btn-save-accounts').addEventListener('click', async () => {
     try {
         const accounts = collectAccounts()
         const data = await post('/api/accounts', { accounts })
-        state.accounts = accounts
+        // 重新拉取：服务端不回传密码，只给 has_password 标记
+        const fresh = await api('/api/state')
+        state.accounts = fresh.accounts
         renderOverview()
+        renderAccounts()
         toast(data.message || '已保存', 'ok')
     } catch (error) {
         toast(error.message, 'err')

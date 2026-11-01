@@ -13,7 +13,7 @@
 const http = require('node:http')
 const fs = require('node:fs')
 const path = require('node:path')
-const { spawn } = require('node:child_process')
+const { spawn, spawnSync } = require('node:child_process')
 
 const ROOT = path.resolve(__dirname, '..')
 const APP_DIR = path.join(ROOT, 'app')
@@ -52,6 +52,7 @@ const ACCOUNT_FIELDS = [
 const state = {
     run: null, // { proc, startedAt, logFile, mode, exitCode }
     build: null,
+    side: [], // 手动登录等旁路子进程，退出时一并结束
     lines: [],
     clients: new Set(),
     lastSummary: null,
@@ -356,6 +357,10 @@ function shutdown(signal) {
     if (state.build) {
         killTree(state.build.proc.pid)
     }
+    for (const child of state.side) {
+        if (child && child.exitCode === null) killTree(child.pid)
+    }
+    state.side = []
     try {
         fs.rmSync(PID_FILE, { force: true })
     } catch {
@@ -397,11 +402,91 @@ function runNpm(args, channel, onDone) {
     return child
 }
 
+/** 同步等待，用于重试删除前让出时间片 */
+function sleepSync(ms) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/**
+ * 删除目录，带重试。
+ *
+ * Windows 上杀软扫描、索引服务或宿主环境注入的删除钩子都可能让
+ * fs.rmSync 抛 EPERM / EBUSY / 自定义错误。直接删失败时，改用
+ * 干净环境（childEnv 已剥离相关钩子）的子进程再删一次。
+ */
+function removeDir(dir, attempts = 3, label = 'BUILD') {
+    for (let i = 1; i <= attempts; i++) {
+        try {
+            fs.rmSync(dir, { recursive: true, force: true })
+            return true
+        } catch {
+            /* 落到子进程兜底 */
+        }
+        const result = spawnSync(
+            NODE_EXE,
+            [
+                '-e',
+                'try{require("node:fs").rmSync(process.argv[1],{recursive:true,force:true})}catch(e){process.exit(1)}',
+                dir
+            ],
+            { env: childEnv(), windowsHide: true, timeout: 120000 }
+        )
+        if (result.status === 0) return true
+        sleepSync(300)
+    }
+    pushLine(
+        `[${nowIso()}] [MAIN] [WARN] MAIN [${label}] 目录清理失败 | ${path.basename(dir)} | 可手动删除`,
+        'build'
+    )
+    return false
+}
+
 function startBuild() {
     if (state.build) throw new Error('构建已在进行中')
     if (isRunning()) throw new Error('任务运行中，无法构建')
+
+    // 构建会先 rimraf dist，中途失败会留下残缺产物。
+    // 先把旧 dist 改名备份，失败时还原。
+    const distDir = path.join(APP_DIR, 'dist')
+    let backupDir = path.join(APP_DIR, 'dist.bak')
+    let backedUp = false
+
+    removeDir(backupDir)
+    if (fs.existsSync(backupDir)) {
+        // 实在删不掉就换个名字，保证本次构建仍有回滚点
+        backupDir = path.join(APP_DIR, `dist.bak.${Date.now()}`)
+    }
+    if (fs.existsSync(distDir)) {
+        try {
+            fs.renameSync(distDir, backupDir)
+            backedUp = true
+        } catch (error) {
+            pushLine(
+                `[${nowIso()}] [MAIN] [WARN] MAIN [BUILD] 旧产物备份失败，本次构建无回滚点 | ${String(error.code || error.message)}`,
+                'build'
+            )
+        }
+    }
+
     pushLine(`[${nowIso()}] [MAIN] [INFO] MAIN [BUILD] 开始构建 | 正在编译 TypeScript`, 'build')
     const child = runNpm(['run', 'build'], 'build', code => {
+        if (code === 0) {
+            if (backedUp) removeDir(backupDir)
+        } else if (backedUp) {
+            removeDir(distDir)
+            try {
+                fs.renameSync(backupDir, distDir)
+                pushLine(
+                    `[${nowIso()}] [MAIN] [WARN] MAIN [BUILD] 已还原构建前的产物，任务仍可正常运行`,
+                    'build'
+                )
+            } catch (error) {
+                pushLine(
+                    `[${nowIso()}] [MAIN] [ERROR] MAIN [BUILD] 产物还原失败，备份保留在 ${path.basename(backupDir)} | ${String(error.code || error.message)}`,
+                    'build'
+                )
+            }
+        }
         pushLine(
             `[${nowIso()}] [MAIN] [${code === 0 ? 'INFO' : 'ERROR'}] MAIN [BUILD] 构建${code === 0 ? '完成' : '失败'} | exitCode=${code}`,
             'build'
@@ -417,7 +502,12 @@ function startManualLogin(email, platform) {
     if (!email) throw new Error('请填写要登录的邮箱')
     const args = ['run', 'manual-login', '--', email, '--platform', platform || 'both']
     pushLine(`[${nowIso()}] [MAIN] [INFO] MAIN [MANUAL-LOGIN] 启动手动登录 | email=${email} | platform=${platform || 'both'}`, 'run')
-    runNpm(args, 'run')
+    // 记入 side 列表，管理界面退出时一并结束，避免 npm 与浏览器残留
+    const child = runNpm(args, 'run', () => {
+        state.side = state.side.filter(item => item !== child)
+    })
+    state.side.push(child)
+    return child
 }
 
 function syncConfig() {
@@ -476,6 +566,61 @@ function json(res, code, payload) {
     res.end(body)
 }
 
+/**
+ * 本地接口防护
+ *
+ * 1. Host 白名单 —— 防 DNS rebinding。攻击者把恶意域名解析到 127.0.0.1，
+ *    浏览器会带上 `Host: evil.com:8899`，此处直接拒绝。
+ * 2. Origin / Sec-Fetch-Site 校验 —— 防跨站请求。
+ * 3. POST 只接受 application/json —— 跨站的 no-cors 请求只能发
+ *    text/plain 等简单类型，被这一步挡住。
+ */
+const ALLOWED_HOSTS = new Set([
+    `${HOST}:${PORT}`,
+    `localhost:${PORT}`,
+    `[::1]:${PORT}`,
+    HOST,
+    'localhost'
+])
+
+function checkRequest(req, res) {
+    const host = String(req.headers.host || '').toLowerCase()
+    if (!ALLOWED_HOSTS.has(host)) {
+        json(res, 403, { error: `拒绝访问：Host 不被允许（${host || '空'}）` })
+        return false
+    }
+
+    if (req.method === 'GET' || req.method === 'HEAD') return true
+
+    const origin = req.headers.origin
+    if (origin) {
+        let originHost = ''
+        try {
+            originHost = new URL(origin).host.toLowerCase()
+        } catch {
+            originHost = ''
+        }
+        if (!ALLOWED_HOSTS.has(originHost)) {
+            json(res, 403, { error: '拒绝访问：请求来源不被允许' })
+            return false
+        }
+    }
+
+    const site = String(req.headers['sec-fetch-site'] || '')
+    if (site && site !== 'same-origin' && site !== 'none') {
+        json(res, 403, { error: '拒绝访问：跨站请求已被拦截' })
+        return false
+    }
+
+    const contentType = String(req.headers['content-type'] || '').toLowerCase()
+    if (!contentType.startsWith('application/json')) {
+        json(res, 415, { error: '仅接受 application/json 请求' })
+        return false
+    }
+
+    return true
+}
+
 function readBody(req) {
     return new Promise((resolve, reject) => {
         let data = ''
@@ -513,13 +658,15 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${HOST}:${PORT}`)
     const pathname = url.pathname
 
+    if (!checkRequest(req, res)) return
+
     if (req.method === 'GET' && !pathname.startsWith('/api/')) {
         serveStatic(req, res, pathname)
         return
     }
 
     try {
-        // --- 状态总览
+        // --- 状态总览（不下发密码，只告诉前端是否已配置）
         if (pathname === '/api/state') {
             const env = readEnv()
             json(res, 200, {
@@ -530,20 +677,39 @@ const server = http.createServer(async (req, res) => {
                 exitCode: state.run?.exitCode ?? null,
                 mode: state.run?.mode || null,
                 config: readConfig(),
-                accounts: env.accounts,
+                accounts: env.accounts.map(({ password, ...rest }) => ({
+                    ...rest,
+                    has_password: Boolean(password)
+                })),
                 summary: state.lastSummary,
                 nodeVersion: process.version
             })
             return
         }
 
-        // --- 账号
+        // --- 账号（空密码表示沿用原密码，避免前端持有明文）
         if (pathname === '/api/accounts' && req.method === 'POST') {
             const body = await readBody(req)
-            const accounts = Array.isArray(body.accounts) ? body.accounts : []
+            const incoming = Array.isArray(body.accounts) ? body.accounts : []
             const env = readEnv()
-            fs.writeFileSync(ENV_PATH, serializeEnv(accounts, env.extras), 'utf8')
-            json(res, 200, { ok: true, message: '账号已保存，下次运行生效' })
+            const byEmail = new Map(
+                env.accounts.filter(a => a.email).map(a => [a.email.toLowerCase(), a])
+            )
+            const merged = incoming.map(acc => {
+                if (acc.password) return acc
+                const prev = acc.email ? byEmail.get(acc.email.toLowerCase()) : null
+                return prev && prev.password ? { ...acc, password: prev.password } : acc
+            })
+            // 先备份，再写入
+            if (fs.existsSync(ENV_PATH)) {
+                try {
+                    fs.copyFileSync(ENV_PATH, ENV_PATH + '.bak')
+                } catch {
+                    /* 备份失败不阻断保存 */
+                }
+            }
+            fs.writeFileSync(ENV_PATH, serializeEnv(merged, env.extras), 'utf8')
+            json(res, 200, { ok: true, message: '账号已保存（原文件备份为 .env.bak）' })
             return
         }
 
