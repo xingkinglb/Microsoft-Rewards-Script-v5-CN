@@ -269,12 +269,15 @@ function accountCard(acc, index) {
                 <span class="hint">不是 6 位动态码，是绑定验证器时的密钥</span></div>
             <div class="field"><label>备用邮箱</label>
                 <input type="text" data-k="recovery_email" value="${esc(acc.recovery_email || '')}" placeholder="可选"></div>
-            <div class="field"><label>地区代码</label>
-                <input type="text" data-k="geo_locale" value="${esc(acc.geo_locale || '')}" placeholder="cn / us / auto"></div>
+            <div class="field"><label>地区代码（市场）</label>
+                <input type="text" data-k="geo_locale" list="geo-options" value="${esc(acc.geo_locale || '')}" placeholder="cn / us / auto">
+                <span class="hint">账号所在国家，填 auto 可自动识别；英国是 gb 不是 uk</span></div>
             <div class="field"><label>语言代码</label>
-                <input type="text" data-k="lang_code" value="${esc(acc.lang_code || '')}" placeholder="zh / en"></div>
+                <input type="text" data-k="lang_code" list="lang-options" value="${esc(acc.lang_code || '')}" placeholder="zh / en">
+                <span class="hint">搜索词与页面语言，和地区组合成 zh-CN、en-US</span></div>
             <div class="field"><label>代理地址</label>
-                <input type="text" data-k="proxy_url" value="${esc(acc.proxy_url || '')}" placeholder="可选 http://host:port"></div>
+                <input type="text" data-k="proxy_url" value="${esc(acc.proxy_url || '')}" placeholder="可选 http://host:port">
+                <span class="hint">非国区账号建议配对应地区代理</span></div>
             <div class="field"><label>代理账号 / 密码</label>
                 <input type="text" data-k="proxy_username" value="${esc(acc.proxy_username || '')}" placeholder="可选"></div>
         </div>

@@ -90,6 +90,61 @@ Microsoft-Rewards-Script-v5/
 
 ---
 
+## 地区与语言
+
+两个字段容易混淆，作用完全不同：
+
+| 字段 | 作用 | 取值 |
+| --- | --- | --- |
+| `ACCOUNT_N_GEO_LOCALE` | 账号所属市场。用于 `X-Rewards-Country` 请求头、App 任务国家参数、搜索词地区选择 | 两位 ISO 3166-1 代码，如 `cn` `us` `gb`，或 `auto` |
+| `ACCOUNT_N_LANG_CODE` | 搜索词与页面语言，和地区组合成 `zh-CN`、`en-US` | 如 `zh` `en` `ja` `pt-BR` |
+
+代码实现见 `src/util/Locale.ts` 的 `resolveAccountLocale()`，国家码经 `normalizeCountry()` 校验——**只接受两位字母**，`uk`、`usa`、中文都会被视为无效并回落。
+
+### `auto` 模式
+
+填 `auto` 时程序按此顺序解析：
+
+1. 读会话库里缓存的 region（`loadResolvedRegion`）
+2. 拿到 dashboard 后用微软档案 `userProfile.attributes.country` 校正
+3. 写回缓存（`saveResolvedRegion`）
+
+对不确定地区的人最省事，推荐默认使用。
+
+### 代理的必要性
+
+**`GEO_LOCALE` 不是网络设置** —— 它只改变请求里声明的市场，不改变出口 IP。
+
+| 场景 | 建议 |
+| --- | --- |
+| 国区账号 + 国内网络 | 直连，无需代理 |
+| 非国区账号 + 国内网络 | **建议配对应地区代理** |
+| 多地区账号混用 | 每账号配各自地区代理 |
+
+原因：`BING` 常量固定为 `https://www.bing.com`，国内 IP 会被导向 `cn.bing.com`；而账号市场是美区时，活动列表与积分归因按美区计算，IP 与市场不一致常见表现是「跑完但没加分」。
+
+代理配置在 `.env`：
+
+```dotenv
+ACCOUNT_1_PROXY_URL=http://host:port
+ACCOUNT_1_PROXY_PORT=0
+ACCOUNT_1_PROXY_USERNAME=
+ACCOUNT_1_PROXY_PASSWORD=
+ACCOUNT_1_PROXY_HTTP=false
+```
+
+支持 HTTP / HTTPS / 免认证 SOCKS，**SOCKS 不支持带账号密码**。
+
+### 如何验证生效
+
+运行日志的 `ACCOUNT-START` 行会打印实际使用的 locale：
+
+```
+Starting account: xxx@outlook.com | geoLocale: CN | locale: zh-CN | cachedRegion: CN
+```
+
+`geoLocale` 与填写值不符即说明代码无效被回落。
+
 ## 定时任务
 
 用 **Windows 任务计划程序** 实现，管理界面关掉也能跑，重启电脑不会丢。
