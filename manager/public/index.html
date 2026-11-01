@@ -161,6 +161,34 @@
                     </div>
 
                     <div class="card">
+                        <div class="card-head">
+                            <h2>定时任务</h2>
+                            <span class="desc">由 Windows 任务计划程序触发，不需要管理界面保持运行</span>
+                        </div>
+                        <div class="form-grid">
+                            <div class="field">
+                                <label>每天运行时间</label>
+                                <input type="text" id="schedule-time" value="07:00" placeholder="07:00" />
+                                <span class="hint">24 小时制，如 07:00 / 21:30</span>
+                            </div>
+                            <div class="field">
+                                <label>当前状态</label>
+                                <div id="schedule-status" style="font-size: 12.5px; color: var(--muted); line-height: 1.9">读取中…</div>
+                            </div>
+                        </div>
+                        <div class="row-actions">
+                            <button class="btn primary" id="btn-schedule-install">启用 / 更新时间</button>
+                            <button class="btn" id="btn-schedule-run">立即运行一次</button>
+                            <button class="btn danger" id="btn-schedule-remove">删除定时任务</button>
+                        </div>
+                        <div class="hint" style="margin-top: 12px; color: #6b7280; font-size: 11.5px; line-height: 1.8">
+                            任务以「仅在用户登录时运行」注册，无需管理员权限，也无需保存密码。<br />
+                            关机或睡眠错过时间后，下次开机 10 分钟内会自动补跑。日志同样写入
+                            <code>manager/logs/</code>，跑完会出现在「概览 → 最近运行记录」里。
+                        </div>
+                    </div>
+
+                    <div class="card">
                         <div class="card-head"><h2>维护</h2></div>
                         <div class="row-actions" style="margin-top: 0">
                             <button class="btn" id="btn-config-sync">同步配置默认值</button>

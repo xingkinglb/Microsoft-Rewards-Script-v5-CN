@@ -36,6 +36,55 @@ Microsoft-Rewards-Script-v5/
 | 任务设置 | 图形化编辑 `config.json`，按分组展示，含 v5 新增项 |
 | 工具箱 | 手动登录、清空会话、同步配置默认值、检查上游更新、打开目录 |
 
+## 定时任务
+
+用 **Windows 任务计划程序** 实现，管理界面关掉也能跑，重启电脑不会丢。
+
+### 在界面里设置（推荐）
+
+「工具箱 → 定时任务」：
+
+1. 填每天运行时间（24 小时制，如 `07:00`）
+2. 点「启用 / 更新时间」
+3. 状态区会显示下次运行时间和上次结果
+
+同一张卡片还能「立即运行一次」和「删除定时任务」。
+
+### 命令行设置
+
+```bash
+# 查看状态
+powershell -NoProfile -ExecutionPolicy Bypass -File manager\schedule.ps1 -Action status
+
+# 每天 07:00 运行
+powershell -NoProfile -ExecutionPolicy Bypass -File manager\schedule.ps1 -Action install -Time 07:00
+
+# 立即触发一次
+powershell -NoProfile -ExecutionPolicy Bypass -File manager\schedule.ps1 -Action run
+
+# 删除
+powershell -NoProfile -ExecutionPolicy Bypass -File manager\schedule.ps1 -Action remove
+```
+
+### 任务是怎么配的
+
+| 项目 | 值 |
+| --- | --- |
+| 任务名 | `MicrosoftRewardsScript-v5` |
+| 执行 | `runtime\node\node.exe manager\scheduled-run.js` |
+| 工作目录 | 项目根目录 |
+| 触发 | 每天指定时间 |
+| 运行身份 | 当前用户，**仅在登录时运行**，权限 Limited |
+| 错过处理 | `StartWhenAvailable` —— 关机/睡眠错过时间，开机后自动补跑 |
+| 失败重试 | 每 10 分钟重试，最多 2 次 |
+| 超时 | 3 小时 |
+
+**不需要管理员权限，也不需要保存密码**——因为用的是「仅在用户登录时运行」模式。
+
+定时运行的日志写到 `manager/logs/run_<时间戳>.log`，和管理界面手动运行同一套命名，跑完会出现在「概览 → 最近运行记录」里。
+
+> 注意：定时任务直接跑内核，不经过管理界面，所以**运行期间没有实时日志页面**。想看实时日志就手动在界面点「开始运行」。
+
 ## 安全设计
 
 管理界面只监听 `127.0.0.1`，并额外做了三层防护：

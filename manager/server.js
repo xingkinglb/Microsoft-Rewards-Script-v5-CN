@@ -26,6 +26,9 @@ const PKG_PATH = path.join(APP_DIR, 'package.json')
 const LOG_DIR = path.join(__dirname, 'logs')
 const PID_FILE = path.join(__dirname, '.run.pid')
 const RUN_WRAPPER = path.join(__dirname, 'run-wrapper.js')
+const SCHEDULE_PS1 = path.join(__dirname, 'schedule.ps1')
+const SCHEDULED_RUNNER = path.join(__dirname, 'scheduled-run.js')
+const TASK_NAME = 'MicrosoftRewardsScript-v5'
 const PUBLIC_DIR = path.join(__dirname, 'public')
 const PORT = Number(process.env.MANAGER_PORT || 8899)
 const HOST = '127.0.0.1'
@@ -510,8 +513,43 @@ function startManualLogin(email, platform) {
     return child
 }
 
-function syncConfig() {
-    return new Promise(resolve => {
+/**
+ * 调用 schedule.ps1 管理 Windows 计划任务。
+ * 该任务以「仅在用户登录时运行」注册，不需要管理员权限。
+ */
+function runSchedule(action, time) {
+    const args = [
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        SCHEDULE_PS1,
+        '-Action',
+        action,
+        '-TaskName',
+        TASK_NAME
+    ]
+    if (action === 'install') args.push('-Time', time || '07:00')
+
+    const result = spawnSync('powershell.exe', args, {
+        windowsHide: true,
+        timeout: 60000,
+        encoding: 'utf8'
+    })
+
+    const stdout = String(result.stdout || '').trim()
+    const line = stdout.split(/\r?\n/).filter(Boolean).pop() || ''
+    try {
+        return JSON.parse(line)
+    } catch {
+        return {
+            ok: false,
+            error: stdout || String(result.stderr || '').trim() || `powershell 退出码 ${result.status}`
+        }
+    }
+}
+
+function syncConfig() {    return new Promise(resolve => {
         const script = path.join(APP_DIR, 'dist', 'config', 'ConfigSync.js')
         if (!fs.existsSync(script)) {
             resolve({ ok: false, message: '未找到 ConfigSync，请先构建' })
@@ -810,6 +848,17 @@ const server = http.createServer(async (req, res) => {
         if (pathname === '/api/config-sync' && req.method === 'POST') {
             const result = await syncConfig()
             json(res, 200, result)
+            return
+        }
+        if (pathname === '/api/schedule') {
+            if (req.method === 'GET') {
+                json(res, 200, runSchedule('status'))
+                return
+            }
+            const body = await readBody(req)
+            const action = String(body.action || '')
+            if (!['install', 'remove', 'run'].includes(action)) throw new Error('未知操作')
+            json(res, 200, runSchedule(action, body.time))
             return
         }
         if (pathname === '/api/update') {

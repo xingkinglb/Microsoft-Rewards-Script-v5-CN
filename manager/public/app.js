@@ -57,6 +57,7 @@ $$('.nav-item').forEach(item => {
         $$('.pane').forEach(p => p.classList.remove('active'))
         $(`#pane-${pane}`).classList.add('active')
         $('#pane-title').textContent = TITLES[pane] || pane
+        if (pane === 'tools') loadSchedule()
     })
 })
 
@@ -511,6 +512,85 @@ function collectConfig() {
     return config
 }
 
+/* ------------------------------------------------------------------ 定时任务 */
+
+const TASK_RESULTS = {
+    0: '成功',
+    267008: '已就绪',
+    267009: '正在运行',
+    267010: '已禁用',
+    267011: '尚未运行',
+    267012: '未运行',
+    267014: '被终止'
+}
+
+function describeResult(code) {
+    if (code === 0) return '<span class="tag ok">成功</span>'
+    const text = TASK_RESULTS[code]
+    if (text) return `<span class="tag">${text}</span>`
+    return `<span class="tag warn">结果码 0x${Number(code).toString(16)}</span>`
+}
+
+async function loadSchedule() {
+    const box = $('#schedule-status')
+    try {
+        const data = await api('/api/schedule')
+        if (!data.installed) {
+            box.innerHTML = '<span class="tag warn">未启用</span>'
+            return
+        }
+        const lines = [`<span class="tag ok">已启用</span> ${data.state === 'Ready' ? '等待触发' : esc(data.state)}`]
+        if (data.nextRun) lines.push(`下次运行：<b style="color:var(--text)">${esc(data.nextRun)}</b>`)
+        if (data.lastRun) {
+            lines.push(`上次运行：${esc(data.lastRun)} ${describeResult(data.lastResult)}`)
+        } else {
+            lines.push('上次运行：尚未运行')
+        }
+        box.innerHTML = lines.join('<br />')
+    } catch (error) {
+        box.innerHTML = `<span class="tag err">读取失败：${esc(error.message)}</span>`
+    }
+}
+
+$('#btn-schedule-install').addEventListener('click', async () => {
+    const time = $('#schedule-time').value.trim()
+    if (!/^\d{1,2}:\d{2}$/.test(time)) {
+        toast('时间格式应为 HH:mm，例如 07:00', 'err')
+        return
+    }
+    try {
+        const data = await post('/api/schedule', { action: 'install', time })
+        if (data.ok === false) throw new Error(data.error || '设置失败')
+        toast(`定时任务已设为每天 ${data.time}`, 'ok')
+        await loadSchedule()
+    } catch (error) {
+        toast(error.message, 'err')
+    }
+})
+
+$('#btn-schedule-run').addEventListener('click', async () => {
+    try {
+        const data = await post('/api/schedule', { action: 'run' })
+        if (data.ok === false) throw new Error(data.error || '启动失败')
+        toast('已触发一次运行，稍后可在「最近运行记录」查看结果', 'ok')
+        setTimeout(loadSchedule, 3000)
+    } catch (error) {
+        toast(error.message, 'err')
+    }
+})
+
+$('#btn-schedule-remove').addEventListener('click', async () => {
+    if (!confirm('确定删除定时任务？删除后不再自动运行。')) return
+    try {
+        const data = await post('/api/schedule', { action: 'remove' })
+        if (data.ok === false) throw new Error(data.error || '删除失败')
+        toast(data.removed ? '定时任务已删除' : '原本就没有定时任务', 'ok')
+        await loadSchedule()
+    } catch (error) {
+        toast(error.message, 'err')
+    }
+})
+
 /* ------------------------------------------------------------------ 数据加载 */
 
 async function loadState() {
@@ -705,6 +785,7 @@ $('#btn-check-update').addEventListener('click', async () => {    const box = $(
 loadState().then(() => {
     connectStream()
     loadLogs()
+    loadSchedule()
 })
 setInterval(() => {
     api('/api/state')
