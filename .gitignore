@@ -34,3 +34,6 @@ manager/preview-*.png
 
 # 运行中的任务 PID
 manager/.run.pid
+
+# 运行锁
+manager/.run.lock

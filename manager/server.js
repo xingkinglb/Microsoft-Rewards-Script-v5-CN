@@ -26,6 +26,7 @@ const PKG_PATH = path.join(APP_DIR, 'package.json')
 const LOG_DIR = path.join(__dirname, 'logs')
 const PID_FILE = path.join(__dirname, '.run.pid')
 const RUN_WRAPPER = path.join(__dirname, 'run-wrapper.js')
+const LOCK_FILE = path.join(__dirname, '.run.lock')
 const SCHEDULE_PS1 = path.join(__dirname, 'schedule.ps1')
 const SCHEDULED_RUNNER = path.join(__dirname, 'scheduled-run.js')
 const TASK_NAME = 'MicrosoftRewardsScript-v5'
@@ -258,8 +259,55 @@ function isRunning() {
     return Boolean(state.run && state.run.proc && state.run.proc.exitCode === null)
 }
 
+/**
+ * 跨进程运行锁
+ *
+ * 定时任务（scheduled-run.js）和管理器手动运行是两个独立进程。
+ * 若同时启动，会有两个机器人操作同一个账号，极易触发微软风控。
+ * 用一个锁文件互斥，锁里记录持有者 PID，进程不存在则视为陈旧锁。
+ */
+function readRunLock() {
+    try {
+        if (!fs.existsSync(LOCK_FILE)) return null
+        const info = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8'))
+        if (!info || !info.pid) return null
+        try {
+            process.kill(info.pid, 0) // 只探测，不发送信号
+            return info
+        } catch {
+            return null // 持有者已退出，按陈旧锁处理
+        }
+    } catch {
+        return null
+    }
+}
+
+function writeRunLock(pid, source) {
+    try {
+        fs.writeFileSync(LOCK_FILE, JSON.stringify({ pid, source, startedAt: nowIso() }), 'utf8')
+    } catch {
+        /* 锁写不进去不阻断运行 */
+    }
+}
+
+function clearRunLock() {
+    try {
+        fs.rmSync(LOCK_FILE, { force: true })
+    } catch {
+        /* ignore */
+    }
+}
+
 function startRun(options = {}) {
     if (isRunning()) throw new Error('已有任务在运行中')
+
+    // 定时任务可能正在跑，避免两个机器人同时操作同一账号
+    const active = readRunLock()
+    if (active) {
+        const source = active.source === 'schedule' ? '定时任务' : '另一个进程'
+        throw new Error(`${source}正在运行（PID ${active.pid}），请等它结束再试`)
+    }
+
     if (!fs.existsSync(path.join(APP_DIR, 'dist', 'index.js'))) {
         throw new Error('尚未构建，请先在「工具」里执行构建')
     }
@@ -300,6 +348,8 @@ function startRun(options = {}) {
     } catch {
         /* 不影响运行 */
     }
+    // 加锁，阻止定时任务与手动运行并发
+    writeRunLock(child.pid, 'manager')
 
     child.stdout?.on('data', chunk => stream.write(chunk))
     child.stderr?.on('data', chunk => stream.write(chunk))
@@ -315,6 +365,7 @@ function startRun(options = {}) {
         } catch {
             /* ignore */
         }
+        clearRunLock()
         broadcast({ type: 'state', running: false, exitCode: code, summary: state.lastSummary })
     })
 
@@ -369,6 +420,9 @@ function shutdown(signal) {
     } catch {
         /* ignore */
     }
+    // 只清理自己持有的锁，别动定时任务的
+    const heldLock = readRunLock()
+    if (heldLock && heldLock.source === 'manager') clearRunLock()
     if (signal) process.exit(0)
 }
 
@@ -707,10 +761,12 @@ const server = http.createServer(async (req, res) => {
         // --- 状态总览（不下发密码，只告诉前端是否已配置）
         if (pathname === '/api/state') {
             const env = readEnv()
+            const lock = readRunLock()
             json(res, 200, {
                 version: readVersion(),
                 running: isRunning(),
                 building: Boolean(state.build),
+                externalRun: lock && lock.source !== 'manager' ? lock : null,
                 startedAt: state.run?.startedAt || null,
                 exitCode: state.run?.exitCode ?? null,
                 mode: state.run?.mode || null,

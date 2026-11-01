@@ -10,6 +10,7 @@ const state = {
     accounts: [],
     running: false,
     building: false,
+    externalRun: null,
     summary: null,
     autoScroll: true,
     translate: true,
@@ -73,12 +74,15 @@ function setStatus() {
     } else if (state.running) {
         pill.classList.add('running')
         text.textContent = '运行中'
+    } else if (state.externalRun) {
+        pill.classList.add('running')
+        text.textContent = '定时任务运行中'
     } else {
         text.textContent = '空闲'
     }
-    $('#btn-start').disabled = state.running || state.building
+    $('#btn-start').disabled = state.running || state.building || Boolean(state.externalRun)
     $('#btn-stop').disabled = !state.running
-    $('#btn-build').disabled = state.running || state.building
+    $('#btn-build').disabled = state.running || state.building || Boolean(state.externalRun)
 }
 
 function renderOverview() {
@@ -599,6 +603,7 @@ async function loadState() {
     state.accounts = data.accounts
     state.running = data.running
     state.building = data.building
+    state.externalRun = data.externalRun || null
     state.summary = data.summary
     $('#app-version').textContent = data.version
     $('#node-version').textContent = data.nodeVersion
@@ -790,9 +795,13 @@ loadState().then(() => {
 setInterval(() => {
     api('/api/state')
         .then(d => {
-            const changed = d.running !== state.running || d.building !== state.building
+            const changed =
+                d.running !== state.running ||
+                d.building !== state.building ||
+                Boolean(d.externalRun) !== Boolean(state.externalRun)
             state.running = d.running
             state.building = d.building
+            state.externalRun = d.externalRun || null
             if (changed) setStatus()
         })
         .catch(() => {})
