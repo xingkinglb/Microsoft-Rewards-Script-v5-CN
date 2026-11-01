@@ -1,0 +1,33 @@
+# 依赖与运行时（体积大，不提交）
+node_modules/
+runtime/node/
+runtime/*.zip
+
+# 构建产物
+app/dist/
+
+# 账号与密钥 —— 绝对不能提交
+.env
+app/.env
+app/.env.*
+!app/env.example
+app/sessions/
+app/diagnostics/
+
+# 日志
+manager/logs/
+*.log
+
+# 界面预览截图（可选保留，按需删除本行）
+# manager/preview-*.png
+
+# 系统文件
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# 源码下载包
+v5src.zip
+
+# 界面预览截图（含账号信息，不提交）
+manager/preview-*.png
