@@ -270,20 +270,36 @@ function accountCard(acc, index) {
             <div class="field"><label>备用邮箱</label>
                 <input type="text" data-k="recovery_email" value="${esc(acc.recovery_email || '')}" placeholder="可选"></div>
             <div class="field"><label>地区代码（市场）</label>
-                <input type="text" data-k="geo_locale" list="geo-options" value="${esc(acc.geo_locale || '')}" placeholder="cn / us / auto">
-                <span class="hint">账号所在国家，填 auto 可自动识别；英国是 gb 不是 uk</span></div>
+                <input type="text" data-k="geo_locale" list="geo-options" value="${esc(acc.geo_locale || '')}" placeholder="cn / us / gb，留空自动识别">
+                <span class="hint">账号所在国家；留空等于 auto，会从微软档案自动读；英国是 gb 不是 uk</span></div>
             <div class="field"><label>语言代码</label>
-                <input type="text" data-k="lang_code" list="lang-options" value="${esc(acc.lang_code || '')}" placeholder="zh / en">
+                <input type="text" data-k="lang_code" list="lang-options" value="${esc(acc.lang_code || '')}" placeholder="zh / en，留空默认 en">
                 <span class="hint">搜索词与页面语言，和地区组合成 zh-CN、en-US</span></div>
             <div class="field"><label>代理地址</label>
                 <input type="text" data-k="proxy_url" value="${esc(acc.proxy_url || '')}" placeholder="可选 http://host:port">
                 <span class="hint">非国区账号建议配对应地区代理</span></div>
-            <div class="field"><label>代理账号 / 密码</label>
+            <div class="field"><label>代理端口</label>
+                <input type="text" data-k="proxy_port" value="${esc(acc.proxy_port || '')}" placeholder="可选，默认 0">
+                <span class="hint">地址里已带端口时可留空</span></div>
+            <div class="field"><label>代理账号</label>
                 <input type="text" data-k="proxy_username" value="${esc(acc.proxy_username || '')}" placeholder="可选"></div>
+            <div class="field"><label>代理密码</label>
+                <input type="password" data-k="proxy_password" value="${esc(acc.proxy_password || '')}" placeholder="可选">
+                <span class="hint">SOCKS 代理不支持认证</span></div>
         </div>
-        <div class="switch-row" style="margin-top:10px">
-            <div class="info"><strong>保存浏览器指纹</strong><span>保持同一设备身份，降低风控概率</span></div>
-            <div class="switch ${acc.save_fingerprint_desktop === 'true' ? 'on' : ''}" data-k="save_fingerprint_desktop"></div>
+        <div class="switch-grid">
+            <div class="switch-row">
+                <div class="info"><strong>保存桌面端指纹</strong><span>保持同一设备身份，降低风控</span></div>
+                <div class="switch ${acc.save_fingerprint_desktop === 'true' ? 'on' : ''}" data-k="save_fingerprint_desktop"></div>
+            </div>
+            <div class="switch-row">
+                <div class="info"><strong>保存移动端指纹</strong><span>移动端搜索用的设备身份</span></div>
+                <div class="switch ${acc.save_fingerprint_mobile === 'true' ? 'on' : ''}" data-k="save_fingerprint_mobile"></div>
+            </div>
+            <div class="switch-row">
+                <div class="info"><strong>代理用于 HTTP 请求</strong><span>开启后接口请求也走代理</span></div>
+                <div class="switch ${acc.proxy_http === 'true' ? 'on' : ''}" data-k="proxy_http"></div>
+            </div>
         </div>
     </div>`
 }
@@ -311,15 +327,27 @@ function renderAccounts() {
 function collectAccounts() {
     const result = []
     $$('#accounts-list .account').forEach(card => {
-        const acc = { slot: Number(card.dataset.index) + 1 }
+        const index = Number(card.dataset.index)
+        const original = state.accounts[index] || {}
+        const acc = { slot: index + 1 }
+        const rendered = new Set()
+
         card.querySelectorAll('[data-k]').forEach(input => {
             const key = input.dataset.k
+            rendered.add(key)
             if (input.classList.contains('switch')) {
                 if (input.classList.contains('on')) acc[key] = 'true'
             } else if (input.value.trim()) {
                 acc[key] = input.value.trim()
             }
         })
+
+        // 表单没有渲染的字段原样保留，避免保存时静默丢失
+        for (const [key, value] of Object.entries(original)) {
+            if (key === 'slot' || key === 'has_password') continue
+            if (!rendered.has(key) && value) acc[key] = value
+        }
+
         result.push(acc)
     })
     return result
@@ -680,7 +708,8 @@ $('#log-filter').addEventListener('input', e => {
 })
 
 $('#btn-add-account').addEventListener('click', () => {
-    state.accounts.push({ slot: state.accounts.length + 1, save_fingerprint_desktop: 'true', geo_locale: 'cn', lang_code: 'zh' })
+    // 地区与语言故意留空：由用户自己选，避免非国区账号被默认填成 cn
+    state.accounts.push({ slot: state.accounts.length + 1, save_fingerprint_desktop: 'true' })
     renderAccounts()
 })
 

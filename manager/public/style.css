@@ -383,6 +383,20 @@ select:focus {
     border-bottom: none;
 }
 
+/* 一行多个开关（账号卡片底部） */
+.switch-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 0 20px;
+    margin-top: 12px;
+    padding-top: 4px;
+    border-top: 1px solid var(--border-soft);
+}
+
+.switch-grid .switch-row {
+    border-bottom: none;
+}
+
 .switch-row .info strong {
     display: block;
     font-size: 12.5px;
