@@ -26,6 +26,7 @@ const CONFIG_EXAMPLE = path.join(APP_DIR, 'config.example.json')
 const PKG_PATH = path.join(APP_DIR, 'package.json')
 const LOG_DIR = path.join(__dirname, 'logs')
 const PID_FILE = path.join(__dirname, '.run.pid')
+const SETTINGS_PATH = path.join(__dirname, 'settings.json')
 const RUN_WRAPPER = path.join(__dirname, 'run-wrapper.js')
 const LOCK_FILE = path.join(__dirname, '.run.lock')
 const SCHEDULE_PS1 = path.join(__dirname, 'schedule.ps1')
@@ -247,6 +248,95 @@ function writeConfig(config) {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 4), 'utf8')
 }
 
+// ---------------------------------------------------------------- 管理器设置
+
+/**
+ * 管理界面自身的设置，存在 manager/settings.json。
+ * 故意不放进 app/config.json —— 那是上游的配置契约，升级时会被覆盖。
+ */
+const DEFAULT_SETTINGS = { logRetentionDays: 30 }
+
+function readSettings() {
+    try {
+        if (!fs.existsSync(SETTINGS_PATH)) return { ...DEFAULT_SETTINGS }
+        const parsed = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'))
+        return { ...DEFAULT_SETTINGS, ...parsed }
+    } catch {
+        return { ...DEFAULT_SETTINGS }
+    }
+}
+
+function writeSettings(patch) {
+    const next = { ...readSettings(), ...patch }
+    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(next, null, 4), 'utf8')
+    return next
+}
+
+/** 日志目录当前占用 */
+function logStats() {
+    let files = 0
+    let bytes = 0
+    try {
+        for (const name of fs.readdirSync(LOG_DIR)) {
+            const full = path.join(LOG_DIR, name)
+            const st = fs.statSync(full)
+            if (!st.isFile()) continue
+            files += 1
+            bytes += st.size
+        }
+    } catch {
+        /* 目录不存在就当空 */
+    }
+    return { files, bytes }
+}
+
+const SCHEDULER_LOG_MAX = 256 * 1024
+
+/**
+ * 按保留天数清理运行日志。
+ * retentionDays <= 0 表示永久保留，只做 scheduler.log 的体积上限控制。
+ */
+function cleanupLogs() {
+    const settings = readSettings()
+    const days = Number(settings.logRetentionDays)
+    let removed = 0
+    let freed = 0
+
+    if (Number.isFinite(days) && days > 0) {
+        const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
+        try {
+            for (const name of fs.readdirSync(LOG_DIR)) {
+                if (!name.startsWith('run_') || !name.endsWith('.log')) continue
+                const full = path.join(LOG_DIR, name)
+                const st = fs.statSync(full)
+                if (st.mtimeMs >= cutoff) continue
+                freed += st.size
+                fs.rmSync(full, { force: true })
+                removed += 1
+            }
+        } catch {
+            /* 单条失败不影响其余 */
+        }
+    }
+
+    // scheduler.log 是追加写的，长期运行需要封顶
+    try {
+        const schedulerLog = path.join(LOG_DIR, 'scheduler.log')
+        if (fs.existsSync(schedulerLog)) {
+            const st = fs.statSync(schedulerLog)
+            if (st.size > SCHEDULER_LOG_MAX) {
+                const content = fs.readFileSync(schedulerLog, 'utf8')
+                const lines = content.split(/\r?\n/).filter(Boolean)
+                fs.writeFileSync(schedulerLog, lines.slice(-400).join('\n') + '\n', 'utf8')
+            }
+        }
+    } catch {
+        /* ignore */
+    }
+
+    return { removed, freed, stats: logStats() }
+}
+
 function readVersion() {
     try {
         return JSON.parse(fs.readFileSync(PKG_PATH, 'utf8')).version
@@ -368,6 +458,12 @@ function startRun(options = {}) {
             /* ignore */
         }
         clearRunLock()
+        // 每次跑完顺手清理一次，避免长期只跑不打开界面时日志堆积
+        try {
+            cleanupLogs()
+        } catch {
+            /* ignore */
+        }
         broadcast({ type: 'state', running: false, exitCode: code, summary: state.lastSummary })
     })
 
@@ -979,6 +1075,29 @@ const server = http.createServer(async (req, res) => {
             json(res, 200, result)
             return
         }
+        if (pathname === '/api/log-settings') {
+            if (req.method === 'GET') {
+                const settings = readSettings()
+                json(res, 200, { retentionDays: settings.logRetentionDays, stats: logStats() })
+                return
+            }
+            const body = await readBody(req)
+            const days = Number(body.retentionDays)
+            if (!Number.isFinite(days) || days < 0) throw new Error('保留天数不合法')
+            writeSettings({ logRetentionDays: days })
+            const result = cleanupLogs()
+            json(res, 200, {
+                ok: true,
+                retentionDays: days,
+                ...result,
+                message: days === 0 ? '已设为永久保留' : `已设为保留 ${days} 天`
+            })
+            return
+        }
+        if (pathname === '/api/logs/cleanup' && req.method === 'POST') {
+            json(res, 200, { ok: true, ...cleanupLogs() })
+            return
+        }
         if (pathname === '/api/browser') {
             if (req.method === 'GET') {
                 json(res, 200, browserStatus())
@@ -1056,6 +1175,15 @@ server.listen(PORT, HOST, () => {
     console.log(`  运行时  : ${NODE_EXE}`)
     console.log('')
     cleanupOrphan()
+    // 启动时按保留策略清理一次旧日志
+    try {
+        const purged = cleanupLogs()
+        if (purged.removed > 0) {
+            console.log(`  已清理 ${purged.removed} 个过期日志，释放 ${(purged.freed / 1024).toFixed(0)} KB`)
+        }
+    } catch {
+        /* 清理失败不影响启动 */
+    }
     console.log('  ────────────────────────────────────────────────')
     console.log('  这个窗口就是服务本体：')
     console.log('    · 关闭它 = 停止管理界面，正在跑的奖励任务会一并结束')

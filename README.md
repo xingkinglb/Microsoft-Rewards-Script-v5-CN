@@ -333,6 +333,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File manager\schedule.ps1 -Action
 
 未覆盖的英文原样显示，不影响功能。日志文件本身是英文原文，方便对照上游文档排查。
 
+### 日志保留策略
+
+「工具箱 → 维护 → 运行日志保留」可设 7 / 30 / 90 天或永久，默认 **30 天**。设置存于 `manager/settings.json`（已 gitignore，不随包分发）。
+
+清理时机：
+
+| 时机 | 位置 |
+| --- | --- |
+| 管理界面启动 | `server.listen` 回调内 `cleanupLogs()` |
+| 每次运行结束 | `startRun` 的子进程 `exit` 回调 |
+| 定时任务启动前 | `scheduled-run.js` 的 `cleanupOldLogs()` |
+| 手动 | 「立即清理」按钮 → `POST /api/logs/cleanup` |
+
+只删 `run_*.log`，按文件修改时间判断。`scheduler.log` 是追加写的，超过 256 KB 时截断保留最后 400 行。
+
+> 体积参考：一次运行约 7 KB，保留 30 天约 200 KB，一年也才 2.4 MB。这个功能主要是保持整洁，不是省空间。
+
 ---
 
 ## 升级上游版本

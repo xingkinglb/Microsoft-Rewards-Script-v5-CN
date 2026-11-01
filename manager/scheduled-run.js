@@ -94,7 +94,43 @@ function clearRunLock(pid) {
     }
 }
 
+// ---------------------------------------------------------------- 日志清理
+
+const SETTINGS_PATH = path.join(__dirname, 'settings.json')
+
+/** 按 manager/settings.json 的保留天数清理旧日志（与管理界面共用同一份设置） */
+function cleanupOldLogs() {
+    let days = 30
+    try {
+        if (fs.existsSync(SETTINGS_PATH)) {
+            const parsed = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'))
+            if (Number.isFinite(Number(parsed.logRetentionDays))) days = Number(parsed.logRetentionDays)
+        }
+    } catch {
+        /* 用默认值 */
+    }
+    if (!(days > 0)) return 0
+
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
+    let removed = 0
+    try {
+        for (const name of fs.readdirSync(LOG_DIR)) {
+            if (!name.startsWith('run_') || !name.endsWith('.log')) continue
+            const full = path.join(LOG_DIR, name)
+            if (fs.statSync(full).mtimeMs < cutoff) {
+                fs.rmSync(full, { force: true })
+                removed += 1
+            }
+        }
+    } catch {
+        /* ignore */
+    }
+    return removed
+}
+
 // ---------------------------------------------------------------- 前置检查
+
+cleanupOldLogs()
 
 const active = readRunLock()
 if (active) {

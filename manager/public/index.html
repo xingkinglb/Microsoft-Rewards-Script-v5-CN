@@ -197,6 +197,21 @@
                             </div>
                             <button class="btn sm" id="btn-install-browser">安装 / 修复</button>
                         </div>
+                        <div class="switch-row">
+                            <div class="info">
+                                <strong>运行日志保留</strong>
+                                <span id="log-stats">统计中…</span>
+                            </div>
+                            <div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0">
+                                <select id="log-retention" style="width: 110px">
+                                    <option value="7">保留 7 天</option>
+                                    <option value="30">保留 30 天</option>
+                                    <option value="90">保留 90 天</option>
+                                    <option value="0">永久保留</option>
+                                </select>
+                                <button class="btn sm" id="btn-clean-logs">立即清理</button>
+                            </div>
+                        </div>
                         <div class="row-actions" style="margin-top: 14px">
                             <button class="btn" id="btn-config-sync">同步配置默认值</button>
                             <button class="btn" id="btn-open-app">打开程序目录</button>

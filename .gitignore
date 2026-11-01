@@ -40,3 +40,6 @@ manager/.run.lock
 
 # 打包输出
 dist-package/
+
+# 管理界面设置（每台机器不同）
+manager/settings.json

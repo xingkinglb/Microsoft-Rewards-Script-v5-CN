@@ -90,6 +90,7 @@ $$('.nav-item').forEach(item => {
         if (pane === 'tools') {
             loadSchedule()
             loadBrowserStatus()
+            loadLogSettings()
         }
     })
 })
@@ -688,6 +689,48 @@ $('#btn-install-browser').addEventListener('click', async () => {
         toast(data.message || '已开始下载', 'ok')
         $('#btn-install-browser').disabled = true
         setTimeout(loadBrowserStatus, 3000)
+    } catch (error) {
+        toast(error.message, 'err')
+    }
+})
+
+/* ------------------------------------------------------------------ 日志保留 */
+
+function formatBytes(bytes) {
+    if (!bytes) return '0 KB'
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+async function loadLogSettings() {
+    const box = $('#log-stats')
+    try {
+        const data = await api('/api/log-settings')
+        const days = Number(data.retentionDays)
+        const policy = days > 0 ? `保留 ${days} 天` : '永久保留'
+        box.innerHTML = `${data.stats.files} 个文件 · ${formatBytes(data.stats.bytes)} · ${policy}`
+        $('#log-retention').value = String(days)
+    } catch (error) {
+        box.innerHTML = `<span class="tag err">读取失败</span> ${esc(error.message)}`
+    }
+}
+
+$('#log-retention').addEventListener('change', async event => {
+    const days = Number(event.target.value)
+    try {
+        const data = await post('/api/log-settings', { retentionDays: days })
+        toast(`${data.message}${data.removed ? `，已清理 ${data.removed} 个` : ''}`, 'ok')
+        await loadLogSettings()
+    } catch (error) {
+        toast(error.message, 'err')
+    }
+})
+
+$('#btn-clean-logs').addEventListener('click', async () => {
+    try {
+        const data = await post('/api/logs/cleanup', {})
+        toast(data.removed ? `已清理 ${data.removed} 个日志，释放 ${formatBytes(data.freed)}` : '没有需要清理的日志', 'ok')
+        await loadLogSettings()
     } catch (error) {
         toast(error.message, 'err')
     }
