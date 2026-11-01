@@ -569,38 +569,64 @@ function startManualLogin(email, platform) {
 
 /**
  * 调用 schedule.ps1 管理 Windows 计划任务。
- * 该任务以「仅在用户登录时运行」注册，不需要管理员权限。
+ *
+ * 注意：必须用异步 spawn。此前用 spawnSync，PowerShell 启动约 2 秒，
+ * 这段时间整个 HTTP 服务被阻塞，页面加载会卡住。
  */
 function runSchedule(action, time) {
-    const args = [
-        '-NoProfile',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-File',
-        SCHEDULE_PS1,
-        '-Action',
-        action,
-        '-TaskName',
-        TASK_NAME
-    ]
-    if (action === 'install') args.push('-Time', time || '07:00')
+    return new Promise(resolve => {
+        const args = [
+            '-NoProfile',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            SCHEDULE_PS1,
+            '-Action',
+            action,
+            '-TaskName',
+            TASK_NAME
+        ]
+        if (action === 'install') args.push('-Time', time || '07:00')
 
-    const result = spawnSync('powershell.exe', args, {
-        windowsHide: true,
-        timeout: 60000,
-        encoding: 'utf8'
-    })
+        let out = ''
+        let err = ''
+        let settled = false
 
-    const stdout = String(result.stdout || '').trim()
-    const line = stdout.split(/\r?\n/).filter(Boolean).pop() || ''
-    try {
-        return JSON.parse(line)
-    } catch {
-        return {
-            ok: false,
-            error: stdout || String(result.stderr || '').trim() || `powershell 退出码 ${result.status}`
+        const finish = payload => {
+            if (settled) return
+            settled = true
+            resolve(payload)
         }
-    }
+
+        const child = spawn('powershell.exe', args, { windowsHide: true })
+        const timer = setTimeout(() => {
+            try {
+                child.kill()
+            } catch {
+                /* ignore */
+            }
+            finish({ ok: false, error: 'PowerShell 执行超时（60 秒）' })
+        }, 60000)
+
+        child.stdout.on('data', chunk => (out += chunk))
+        child.stderr.on('data', chunk => (err += chunk))
+        child.on('error', error => {
+            clearTimeout(timer)
+            finish({ ok: false, error: `无法启动 PowerShell：${error.message}` })
+        })
+        child.on('exit', code => {
+            clearTimeout(timer)
+            const line = String(out).trim().split(/\r?\n/).filter(Boolean).pop() || ''
+            try {
+                finish(JSON.parse(line))
+            } catch {
+                finish({
+                    ok: false,
+                    error: String(out || err).trim() || `PowerShell 退出码 ${code}`
+                })
+            }
+        })
+    })
 }
 
 function syncConfig() {    return new Promise(resolve => {
@@ -908,13 +934,13 @@ const server = http.createServer(async (req, res) => {
         }
         if (pathname === '/api/schedule') {
             if (req.method === 'GET') {
-                json(res, 200, runSchedule('status'))
+                json(res, 200, await runSchedule('status'))
                 return
             }
             const body = await readBody(req)
             const action = String(body.action || '')
             if (!['install', 'remove', 'run'].includes(action)) throw new Error('未知操作')
-            json(res, 200, runSchedule(action, body.time))
+            json(res, 200, await runSchedule(action, body.time))
             return
         }
         if (pathname === '/api/update') {

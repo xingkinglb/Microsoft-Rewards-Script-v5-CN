@@ -27,10 +27,39 @@ function toast(message, kind = '') {
 }
 
 async function api(path, options) {
-    const res = await fetch(path, options)
+    let res
+    try {
+        res = await fetch(path, { signal: AbortSignal.timeout(15000), ...options })
+    } catch (error) {
+        if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+            throw new Error('服务 15 秒无响应')
+        }
+        throw new Error('请确认命令行窗口仍在运行，然后点「重试」')
+    }
     const data = await res.json().catch(() => ({}))
     if (!res.ok || data.error) throw new Error(data.error || `请求失败 (${res.status})`)
     return data
+}
+
+/* 顶部错误条：连不上服务时明确提示，而不是让页面停在空白状态 */
+function showFatal(error) {
+    let bar = document.getElementById('fatal-bar')
+    if (!bar) {
+        bar = document.createElement('div')
+        bar.id = 'fatal-bar'
+        bar.innerHTML = '<span></span><button class="btn sm" id="fatal-retry">重试</button>'
+        document.body.appendChild(bar)
+        bar.querySelector('#fatal-retry').addEventListener('click', () => {
+            bar.remove()
+            boot()
+        })
+    }
+    bar.querySelector('span').textContent = `无法连接管理界面：${error.message}`
+}
+
+function hideFatal() {
+    const bar = document.getElementById('fatal-bar')
+    if (bar) bar.remove()
 }
 
 const post = (path, body) =>
@@ -819,14 +848,22 @@ $('#btn-check-update').addEventListener('click', async () => {    const box = $(
 
 /* ------------------------------------------------------------------ 启动 */
 
-loadState().then(() => {
-    connectStream()
-    loadLogs()
-    loadSchedule()
-})
+function boot() {
+    loadState()
+        .then(() => {
+            hideFatal()
+            connectStream()
+            loadLogs()
+            loadSchedule()
+        })
+        .catch(showFatal)
+}
+
+boot()
 setInterval(() => {
     api('/api/state')
         .then(d => {
+            hideFatal()
             const changed =
                 d.running !== state.running ||
                 d.building !== state.building ||
@@ -836,5 +873,5 @@ setInterval(() => {
             state.externalRun = d.externalRun || null
             if (changed) setStatus()
         })
-        .catch(() => {})
+        .catch(showFatal)
 }, 5000)

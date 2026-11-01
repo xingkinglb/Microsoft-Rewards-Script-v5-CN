@@ -383,7 +383,30 @@ select:focus {
     border-bottom: none;
 }
 
-/* 一行多个开关（账号卡片底部） */
+/* 顶部连接失败提示 */
+#fatal-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 10px 16px;
+    background: #7f1d1d;
+    color: #fecaca;
+    font-size: 12.5px;
+    border-bottom: 1px solid #991b1b;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+#fatal-bar .btn {
+    background: #fecaca;
+    color: #7f1d1d;
+    border-color: transparent;
+}
 .switch-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
