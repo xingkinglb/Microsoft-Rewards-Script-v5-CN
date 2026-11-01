@@ -227,6 +227,85 @@ git push origin v5.0.0-cn.2
 
 > 为什么包内不含 Chromium：浏览器缓存 719 MB 且装在用户系统目录（`%LOCALAPPDATA%\ms-playwright`），打进包里会让每次更新都要重传 400 MB。改为首次运行时在界面「工具箱 → 浏览器内核」点一次下载，只需装一次。
 
+## 配置项说明
+
+「任务设置」页可视化编辑，底层写入 `app/config.json`。默认值取自上游 `config.example.json`，**一般情况不需要修改**。
+
+判断自己是否在默认状态：`app/config.json` 与 `app/config.example.json` 逐项一致即是。改了想恢复，点「工具箱 → 同步配置默认值」或删掉 `config.json` 重启。
+
+### 常规
+
+| 配置键 | 界面名称 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `rewardsMode` | 运行模式 | `browser` | `browser` 渲染页面点卡片最稳；`api` 走纯 HTTP 更快，但依赖会话有效 |
+| `headless` | 无头模式 | `false` | 不显示浏览器窗口。排查问题时必须关闭才能观察 |
+| `clusters` | 并发账号数 | `1` | 同时处理的账号数，单账号填 1 |
+| `continueOnBotWarning` | 遇风控提示仍继续 | `false` | 微软明确警告异常行为时是否继续。开启会显著提高封号风险 |
+| `ensureStreakProtection` | 自动开启连击保护 | `true` | 自动激活连击保护，断连会掉分 |
+| `autoClaimPunchcardRewards` | 自动领取打卡奖励 | `false` | 打卡完成后自动点领取 |
+| `skipNonPointTasks` | 跳过无积分任务 | `true` | 0 分任务直接跳过，省时间 |
+| `errorDiagnostics` | 保存错误诊断 | `false` | 出错时把页面 HTML/截图写入 `app/diagnostics/` |
+| `debugLogs` | 调试日志 | `false` | 输出更详细，日志体积显著变大 |
+| `accountDelay` / `taskDelay` | 账号/任务间隔 | — | 见 config.json，控制整体节奏 |
+
+### 任务开关
+
+`workers.*` 控制做什么，`activities.*` 控制两类特殊活动。
+
+| 配置键 | 界面名称 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `workers.doDailySet` | 每日任务集 | `true` | 主页三张日常卡片，核心积分来源 |
+| `workers.doMorePromotions` | 更多推广 | `true` | 弹出层里的额外活动 |
+| `workers.doPunchCards` | 打卡任务 | `true` | 月度打卡，部分步骤需消费 |
+| `workers.doClaimBonusPoints` | 领取奖励积分 | `true` | 领取账户中可领的奖励 |
+| `workers.doAppPromotions` | 应用推广 | `true` | Bing App 相关任务 |
+| `workers.doDailyCheckIn` | 每日签到 | `true` | App 每日签到 |
+| `workers.doReadToEarn` | 阅读赚积分 | `true` | 阅读新闻赚分 |
+| `workers.doDesktopSearch` | 桌面端搜索 | `true` | 主要积分来源 |
+| `workers.doMobileSearch` | 移动端搜索 | `true` | 移动端搜索积分 |
+| `workers.doBonusSearches` | 额外搜索奖励 | `false` | 超出配额继续搜，上限见 `maxBonusSearches`。**开启会显著提高风控风险** |
+| `workers.doActivateSearchPerk` | 搜索加成激活 | `true` | CN 区无此活动，日志提示 unavailable 属正常 |
+| `workers.doVisualSearch` | 视觉搜索 | `true` | ⚠️ CN 区无入口，建议关闭，见下方「地区限制」 |
+| `activities.urlReward` | 链接奖励活动 | `true` | 点链接类活动 |
+| `activities.searchOnBing` | Explore on Bing | `true` | Explore 板块任务 |
+
+### 搜索
+
+| 配置键 | 界面名称 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `searchSettings.parallelSearching` | 桌面/移动并行搜索 | `true` | 两个平台同时搜，不排队 |
+| `searchSettings.clusterSearch` | 关联搜索词扩展 | `true` | 一个词衍生一组相关词 |
+| `searchSettings.useAccountLocale` | 按账号地区选搜索词 | `true` | 关闭则固定英文/美区词，CN 账号反而更不自然 |
+| `searchSettings.runOnZeroPoints` | 无积分时仍搜索 | `false` | 配额用完继续搜，纯浪费 |
+| `searchSettings.scrollRandomResults` | 随机滚动结果页 | `false` | 收益不明，增加操作痕迹 |
+| `searchSettings.clickRandomResults` | 随机点击结果 | `false` | 同上 |
+| `searchOnBingLocalQueries` | 使用内置中文搜索词库 | `false` | 默认用 Bing 联想词，更接近真人 |
+| `searchSettings.maxSearchOnBingAttempts` | Explore 最大尝试次数 | `3` | Explore 板块重试上限 |
+| `searchSettings.maxBonusSearches` | 额外搜索上限 | `110` | 仅 `doBonusSearches` 开启时生效，0 表示关闭 |
+| `searchSettings.searchDelay` | 搜索间隔 | `30sec ~ 1min` | **不建议低于 15 秒** |
+| `searchSettings.readDelay` | 阅读间隔 | `30sec ~ 1min` | 阅读任务之间的停顿 |
+| `searchSettings.searchResultVisitTime` | 结果页停留时长 | `10sec` | 每次搜索停留时间 |
+
+### 实验功能
+
+| 配置键 | 界面名称 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `experimental.blockMedia` | 屏蔽图片/视频加载 | `false` | 加快加载省流量，但可能让依赖渲染的任务判定失败 |
+| `experimental.edgeBrowsing` | 后台 Edge 浏览任务 | `false` | Edge 专属任务，可多拿分但稳定性未知 |
+| `experimental.browserSearchApiReport` | 浏览器搜索后补一次 API 上报 | `false` | 可能提高计分成功率，也可能被判定异常 |
+
+### 地区限制（CN 账号的已知现象）
+
+以下日志不是故障，是账号所在市场本身不提供对应能力：
+
+| 日志片段 | 含义 | 建议 |
+| --- | --- | --- |
+| `No rendered visual-search activation control matched` | 视觉搜索入口不存在 | 关闭 `workers.doVisualSearch` |
+| `No search multiplier is offered to this account` | 无搜索加成活动 | 无需处理 |
+| `Mobile: unknown` / `Mobile search quota ... quota unavailable` | 仪表盘不返回移动搜索计数，`SearchProgress.getMissing()` 返回 `available: false` 后跳过 | 若网页端确实有移动搜索任务，则属上游对 CN 区兼容问题 |
+| `claimable bonus unknown` | 读不到可领取奖励 | 无需处理 |
+| `Punchcard ... lockedOrDisabled=N` | 打卡步骤需消费或特定操作 | 正常 |
+
 ## 安全设计
 
 服务只监听 `127.0.0.1`，并额外做三层防护：
