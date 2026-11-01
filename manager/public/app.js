@@ -125,11 +125,12 @@ function renderRecent() {
         .map(r => {
             const cls = r.status === 'completed' ? 'ok' : r.status === 'partial' ? 'warn' : 'err'
             const label = r.status === 'completed' ? '完成' : r.status === 'partial' ? '部分完成' : '中断'
+            const points = r.points && r.points !== 'unknown' ? `${r.points} 分` : '—'
             return `<div class="switch-row">
                 <div class="info"><strong>${esc(r.file)}</strong>
                 <span>${new Date(r.at).toLocaleString('zh-CN')}</span></div>
                 <div style="display:flex;gap:8px;align-items:center">
-                    <span class="tag">${r.points ?? '—'} 分</span>
+                    <span class="tag">${points}</span>
                     <span class="tag ${cls}">${label}</span>
                 </div>
             </div>`
