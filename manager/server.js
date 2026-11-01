@@ -292,7 +292,7 @@ function startRun(options = {}) {
 
     // 记录 PID，供管理界面异常退出后清理孤儿进程
     try {
-        fs.writeFileSync(PID_FILE, String(child.pid), 'utf8')
+        fs.writeFileSync(PID_FILE, String(child.pid) + '\n', 'utf8')
     } catch {
         /* 不影响运行 */
     }

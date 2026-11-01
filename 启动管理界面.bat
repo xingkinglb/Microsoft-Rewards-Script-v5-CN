@@ -1,34 +1,41 @@
 @echo off
-chcp 65001 >nul
-setlocal
-title Microsoft Rewards v5 - ä¸­æ–‡ç®¡ç†ç•Œé¢
+title Microsoft Rewards v5 - ÖĞÎÄ¹ÜÀí½çÃæ
 cd /d "%~dp0"
 
 netstat -ano | findstr "127.0.0.1:8899" | findstr "LISTENING" >nul 2>&1
-if %errorlevel%==0 (
-    echo ç®¡ç†ç•Œé¢å·²åœ¨è¿è¡Œï¼Œæ­£åœ¨æ‰“å¼€æµè§ˆå™¨...
-    start "" http://127.0.0.1:8899
-    timeout /t 2 >nul
-    exit /b
-)
+if not errorlevel 1 goto ALREADY
 
-start "" /min cmd /c "timeout /t 2 >nul & start http://127.0.0.1:8899"
+if not exist "%~dp0runtime\node\node.exe" goto NONODE
 
-if not exist "%~dp0runtime\node\node.exe" (
-    echo [é”™è¯¯] æ‰¾ä¸åˆ°ä¾¿æºç‰ˆ Nodeï¼Œè¯·ç¡®è®¤ runtime\node\node.exe å­˜åœ¨
-    pause
-    exit /b 1
-)
+rem ÉÔµÈ 2 ÃëÔÙ´ò¿ªä¯ÀÀÆ÷£¬µÈ·şÎñ¼àÌı¾ÍĞ÷
+start "" /min cmd /c "%SystemRoot%\System32\timeout.exe /t 2 /nobreak >nul & start http://127.0.0.1:8899"
 
 "%~dp0runtime\node\node.exe" "%~dp0manager\server.js"
 
-rem ---- å…œåº•ï¼šç®¡ç†ç•Œé¢é€€å‡ºåï¼Œæ¸…ç†å¯èƒ½æ®‹ç•™çš„å¥–åŠ±ä»»åŠ¡è¿›ç¨‹ ----
-if exist "%~dp0manager\.run.pid" (
-    echo æ­£åœ¨æ¸…ç†æ®‹ç•™çš„å¥–åŠ±ä»»åŠ¡è¿›ç¨‹...
-    for /f %%i in (%~dp0manager\.run.pid) do taskkill /PID %%i /T /F >nul 2>&1
-    del /q "%~dp0manager\.run.pid" >nul 2>&1
-)
+if not exist "%~dp0manager\.run.pid" goto END
+echo ÕıÔÚÇåÀí²ĞÁôµÄ½±ÀøÈÎÎñ½ø³Ì...
+set /p RUNPID=<"%~dp0manager\.run.pid"
+if not defined RUNPID goto DELPID
+taskkill /PID %RUNPID% /T /F >nul 2>&1
+:DELPID
+del /q "%~dp0manager\.run.pid" >nul 2>&1
+goto END
 
+:ALREADY
+rem ÒÑ¾­ÔÚÔËĞĞ£¬Ö±½Ó´ò¿ªÒ³Ãæ¼´¿É£¬²»µ¯ÌáÊ¾´°¿Ú
+start "" http://127.0.0.1:8899
+exit /b
+
+:NONODE
 echo.
-echo ç®¡ç†ç•Œé¢å·²åœæ­¢ã€‚
+echo [´íÎó] ÕÒ²»µ½±ãĞ¯°æ Node
+echo ÇëÈ·ÈÏÒÔÏÂÎÄ¼ş´æÔÚ£º
+echo   %~dp0runtime\node\node.exe
+echo.
+pause
+exit /b 1
+
+:END
+echo.
+echo ¹ÜÀí½çÃæÒÑÍ£Ö¹¡£
 pause
