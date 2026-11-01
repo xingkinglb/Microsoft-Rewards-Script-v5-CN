@@ -137,14 +137,51 @@ if (process.argv.includes('--zip')) {
     const zipPath = path.join(OUT_ROOT, `${NAME}.zip`)
     console.log('\n压缩中…')
 
-    // 必须用系统自带的 bsdtar，PATH 里的 tar 可能是 GNU tar（会把 C: 当成远程主机）
-    const systemTar = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
-    const tarExe = fs.existsSync(systemTar) ? systemTar : 'tar'
+    const sourceDir = path.join(OUT_ROOT, NAME)
+    const tarArgs = ['-a', '-c', '-f', zipPath, '-C', OUT_ROOT, NAME]
 
-    const result = spawnSync(tarExe, ['-a', '-c', '-f', zipPath, '-C', OUT_ROOT, NAME], { stdio: 'inherit' })
-    if (result.status !== 0) {
-        console.error('压缩失败：需要系统自带 tar（Windows 10 1803+ 均有）')
+    const run = (exe, args) => {
+        const r = spawnSync(exe, args, { encoding: 'utf8' })
+        if (r.error) return { ok: false, reason: r.error.code || r.error.message }
+        if (r.status !== 0) return { ok: false, reason: (r.stderr || '').trim() || `退出码 ${r.status}` }
+        return { ok: true }
+    }
+
+    // 依次尝试：系统 bsdtar → PATH 里的 tar → PowerShell Compress-Archive
+    const systemTar = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
+    const attempts = []
+
+    if (fs.existsSync(systemTar)) {
+        const r = run(systemTar, tarArgs)
+        if (r.ok) attempts.push('系统 tar')
+        else console.log(`  系统 tar 失败：${r.reason}`)
+    } else {
+        console.log(`  未找到 ${systemTar}`)
+    }
+
+    if (!attempts.length) {
+        const r = run('tar', tarArgs)
+        if (r.ok) attempts.push('PATH tar')
+        else console.log(`  PATH tar 失败：${r.reason}`)
+    }
+
+    if (!attempts.length) {
+        console.log('  改用 PowerShell Compress-Archive…')
+        const script =
+            `Compress-Archive -Path '${sourceDir}' -DestinationPath '${zipPath}' -CompressionLevel Optimal -Force`
+        const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+            encoding: 'utf8'
+        })
+        if (r.error || r.status !== 0) {
+            console.error(`压缩失败：${r.error?.message || (r.stderr || '').trim() || `退出码 ${r.status}`}`)
+            process.exit(1)
+        }
+        attempts.push('Compress-Archive')
+    }
+
+    if (!fs.existsSync(zipPath)) {
+        console.error('压缩失败：未生成 zip 文件')
         process.exit(1)
     }
-    console.log(`压缩包：${zipPath}（${mb(fs.statSync(zipPath).size)}）`)
+    console.log(`压缩完成（${attempts[0]}）：${zipPath}（${mb(fs.statSync(zipPath).size)}）`)
 }
