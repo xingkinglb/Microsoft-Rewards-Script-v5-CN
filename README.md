@@ -56,6 +56,9 @@ Microsoft-Rewards-Script-v5/
 │   ├── public/                 前端（HTML / CSS / JS / i18n 词表）
 │   └── logs/                   运行日志
 │
+├── scripts/package.js          打包脚本（生成可发布的便携版）
+├── .github/workflows/          打 tag 时自动构建发布
+│
 ├── 启动管理界面.bat             双击启动
 ├── 停止管理界面.bat             按端口停止（窗口丢了用这个）
 ├── 使用说明.md                  零基础使用指南
@@ -193,6 +196,36 @@ powershell -NoProfile -ExecutionPolicy Bypass -File manager\schedule.ps1 -Action
 - **API 模式** — 保存会话后关闭浏览器，任务走纯 HTTP，速度更快，依赖会话有效
 
 ---
+
+## 打包发布
+
+发布一个开箱即用的压缩包（约 67 MB，解压 206 MB）：
+
+```bash
+node scripts/package.js          # 只生成目录 dist-package/Microsoft-Rewards-Script-v5
+node scripts/package.js --zip    # 额外压缩为 zip
+```
+
+打包内容：`app/`（含 node_modules 与 dist）+ `runtime/node/` + `manager/` + 启动脚本 + 文档。
+
+**不包含**：`.env`、`sessions/`、`config.json`、日志、`.git`、Chromium。
+
+脚本内置安全闸门——打包后校验 `app/.env`、`app/sessions`、`app/config.json`、`manager/logs` 不存在，否则直接失败退出，避免把账号信息打进发布包。
+
+### 自动发布
+
+`.github/workflows/release.yml` 会在**推送 tag** 时自动构建并发布 Release：
+
+```bash
+git tag v5.0.0-cn.2
+git push origin v5.0.0-cn.2
+```
+
+流程：`npm ci` → `npm run build` → 下载 Node 24.22.2 便携版到 `runtime/node` → 打包 → 上传 Release 资产。
+
+也可以在 Actions 页面手动触发（`workflow_dispatch`），此时产物作为 artifact 保留 7 天，不发 Release。
+
+> 为什么包内不含 Chromium：浏览器缓存 719 MB 且装在用户系统目录（`%LOCALAPPDATA%\ms-playwright`），打进包里会让每次更新都要重传 400 MB。改为首次运行时在界面「工具箱 → 浏览器内核」点一次下载，只需装一次。
 
 ## 安全设计
 

@@ -190,7 +190,14 @@
 
                     <div class="card">
                         <div class="card-head"><h2>维护</h2></div>
-                        <div class="row-actions" style="margin-top: 0">
+                        <div class="switch-row" style="border-top: none">
+                            <div class="info">
+                                <strong>浏览器内核</strong>
+                                <span id="browser-status">检测中…</span>
+                            </div>
+                            <button class="btn sm" id="btn-install-browser">安装 / 修复</button>
+                        </div>
+                        <div class="row-actions" style="margin-top: 14px">
                             <button class="btn" id="btn-config-sync">同步配置默认值</button>
                             <button class="btn" id="btn-open-app">打开程序目录</button>
                             <button class="btn" id="btn-open-logs">打开日志目录</button>

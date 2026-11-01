@@ -12,6 +12,7 @@
 
 const http = require('node:http')
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 const { spawn, spawnSync } = require('node:child_process')
 
@@ -56,6 +57,7 @@ const ACCOUNT_FIELDS = [
 const state = {
     run: null, // { proc, startedAt, logFile, mode, exitCode }
     build: null,
+    browserInstall: null,
     side: [], // 手动登录等旁路子进程，退出时一并结束
     lines: [],
     clients: new Set(),
@@ -411,6 +413,9 @@ function shutdown(signal) {
     if (state.build) {
         killTree(state.build.proc.pid)
     }
+    if (state.browserInstall) {
+        killTree(state.browserInstall.proc.pid)
+    }
     for (const child of state.side) {
         if (child && child.exitCode === null) killTree(child.pid)
     }
@@ -447,15 +452,57 @@ function childEnv() {
     return env
 }
 
-function runNpm(args, channel, onDone) {
+function runNpm(args, channel, onDone, extraEnv) {
     // Windows 下不能直接 spawn .cmd，改为 node + npm-cli.js
     const child = spawn(NODE_EXE, [NPM_CLI, ...args], {
         cwd: APP_DIR,
-        env: childEnv(),
+        env: { ...childEnv(), ...(extraEnv || {}) },
         windowsHide: true
     })
     attachStream(child, channel)
     child.on('exit', code => onDone && onDone(code))
+    return child
+}
+
+// ---------------------------------------------------------------- 浏览器内核
+
+const BROWSERS_PATH =
+    process.env.PLAYWRIGHT_BROWSERS_PATH ||
+    path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'ms-playwright')
+
+/** 检查 Chromium 是否已下载（patchright 与 playwright 共用该缓存目录） */
+function browserStatus() {
+    try {
+        if (!fs.existsSync(BROWSERS_PATH)) return { installed: false, path: BROWSERS_PATH }
+        const dirs = fs.readdirSync(BROWSERS_PATH).filter(name => /^chromium-\d+$/.test(name))
+        if (!dirs.length) return { installed: false, path: BROWSERS_PATH }
+        return { installed: true, path: BROWSERS_PATH, version: dirs[0], installing: Boolean(state.browserInstall) }
+    } catch {
+        return { installed: false, path: BROWSERS_PATH }
+    }
+}
+
+function startBrowserInstall() {
+    if (state.browserInstall) throw new Error('浏览器正在下载中')
+    pushLine(
+        `[${nowIso()}] [MAIN] [INFO] MAIN [BROWSER] 开始下载 Chromium | 使用国内镜像 cdn.npmmirror.com`,
+        'run'
+    )
+    const child = runNpm(
+        ['run', 'install:browser'],
+        'run',
+        code => {
+            pushLine(
+                `[${nowIso()}] [MAIN] [${code === 0 ? 'INFO' : 'ERROR'}] MAIN [BROWSER] 浏览器下载${code === 0 ? '完成' : '失败'} | exitCode=${code}`,
+                'run'
+            )
+            state.browserInstall = null
+            broadcast({ type: 'browser', running: false, exitCode: code })
+        },
+        { PLAYWRIGHT_DOWNLOAD_HOST: 'https://cdn.npmmirror.com/binaries/playwright' }
+    )
+    state.browserInstall = { proc: child, startedAt: nowIso() }
+    broadcast({ type: 'browser', running: true })
     return child
 }
 
@@ -930,6 +977,15 @@ const server = http.createServer(async (req, res) => {
         if (pathname === '/api/config-sync' && req.method === 'POST') {
             const result = await syncConfig()
             json(res, 200, result)
+            return
+        }
+        if (pathname === '/api/browser') {
+            if (req.method === 'GET') {
+                json(res, 200, browserStatus())
+                return
+            }
+            startBrowserInstall()
+            json(res, 200, { ok: true, message: '已开始下载浏览器，进度见运行日志' })
             return
         }
         if (pathname === '/api/schedule') {

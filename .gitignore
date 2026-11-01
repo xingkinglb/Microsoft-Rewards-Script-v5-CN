@@ -37,3 +37,6 @@ manager/.run.pid
 
 # 运行锁
 manager/.run.lock
+
+# 打包输出
+dist-package/

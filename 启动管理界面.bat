@@ -3,12 +3,22 @@ title Microsoft Rewards v5 - 中文管理界面
 cd /d "%~dp0"
 
 netstat -ano | findstr "127.0.0.1:8899" | findstr "LISTENING" >nul 2>&1
+if errorlevel 1 goto START
+
+rem 端口被占用：先确认占用者是不是一个真正能响应的管理界面
+powershell -NoProfile -Command "try { $null = Invoke-WebRequest -Uri 'http://127.0.0.1:8899/api/state' -TimeoutSec 3 -UseBasicParsing; exit 0 } catch { exit 1 }"
 if not errorlevel 1 goto ALREADY
 
+echo.
+echo   端口 8899 被无响应的进程占用（多半是上次异常退出的残留），正在清理...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr "127.0.0.1:8899" ^| findstr "LISTENING"') do taskkill /PID %%a /T /F >nul 2>&1
+%SystemRoot%\System32\timeout.exe /t 1 /nobreak >nul 2>&1
+
+:START
 if not exist "%~dp0runtime\node\node.exe" goto NONODE
 
 rem 稍等 2 秒再打开浏览器，等服务监听就绪
-start "" /min cmd /c "%SystemRoot%\System32\timeout.exe /t 2 /nobreak >nul & start http://127.0.0.1:8899"
+start "" /min cmd /c "%SystemRoot%\System32\timeout.exe /t 2 /nobreak >nul 2>&1 & start http://127.0.0.1:8899"
 
 "%~dp0runtime\node\node.exe" "%~dp0manager\server.js"
 

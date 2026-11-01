@@ -1,0 +1,90 @@
+name: 打包发布
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: 安装依赖
+        working-directory: app
+        run: npm ci --include=dev
+
+      - name: 构建内核
+        working-directory: app
+        run: npm run build
+
+      - name: 下载便携版 Node 运行时
+        shell: pwsh
+        run: |
+          $version = '24.22.2'
+          $url = "https://nodejs.org/dist/v$version/node-v$version-win-x64.zip"
+          Invoke-WebRequest -Uri $url -OutFile node.zip
+          Expand-Archive -Path node.zip -DestinationPath node-tmp
+          New-Item -ItemType Directory -Force -Path runtime | Out-Null
+          Move-Item "node-tmp\node-v$version-win-x64" "runtime\node"
+          Remove-Item node.zip -Recurse -Force
+          Remove-Item node-tmp -Recurse -Force
+          & "runtime\node\node.exe" --version
+
+      - name: 打包（含安全检查）
+        run: node scripts/package.js --zip
+
+      - name: 上传构建产物
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Microsoft-Rewards-Script-v5
+          path: dist-package/Microsoft-Rewards-Script-v5.zip
+          retention-days: 7
+
+      - name: 发布 Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-package/Microsoft-Rewards-Script-v5.zip
+          generate_release_notes: true
+          body: |
+            ## 下载
+
+            **`Microsoft-Rewards-Script-v5.zip`** — 解压即用，内置 Node.js 24 运行时。
+
+            ## 首次使用（5 步）
+
+            1. 解压到任意目录（路径避免特殊字符和中文）
+            2. 双击 **`启动管理界面.bat`**
+            3. 「工具箱 → 浏览器内核」点 **「安装 / 修复」**，下载 Chromium（约 720 MB，走国内镜像）
+            4. 「账号配置」填邮箱密码并保存
+            5. 「工具箱 → 打开浏览器手动登录」手动登录一次，然后回「概览」点「开始运行」
+
+            详细说明见包内 **`使用说明.md`**。
+
+            ## 说明
+
+            | 项目 | 说明 |
+            | --- | --- |
+            | 体积 | 约 67 MB（不含浏览器） |
+            | 浏览器 | 未打包（720 MB 太大），首次运行前在界面里下载一次即可，装在系统缓存中 |
+            | 账号信息 | **不含**。`.env` 与登录会话需自行配置，不会随包分发 |
+            | Node 运行时 | 已内置，不影响系统已安装的 Node |
+            | 系统要求 | Windows 10 1803 及以上 |
+
+            ## 升级
+
+            下载新包解压后，把旧包的 `app\.env` 和 `app\sessions\` 复制过去即可保留账号与登录状态。

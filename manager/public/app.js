@@ -87,7 +87,10 @@ $$('.nav-item').forEach(item => {
         $$('.pane').forEach(p => p.classList.remove('active'))
         $(`#pane-${pane}`).classList.add('active')
         $('#pane-title').textContent = TITLES[pane] || pane
-        if (pane === 'tools') loadSchedule()
+        if (pane === 'tools') {
+            loadSchedule()
+            loadBrowserStatus()
+        }
     })
 })
 
@@ -267,6 +270,11 @@ function connectStream() {
             setStatus()
             if (!payload.running) {
                 toast(payload.exitCode === 0 ? '构建完成' : '构建失败，请查看日志', payload.exitCode === 0 ? 'ok' : 'err')
+            }
+        } else if (payload.type === 'browser') {
+            loadBrowserStatus()
+            if (!payload.running) {
+                toast(payload.exitCode === 0 ? '浏览器下载完成' : '浏览器下载失败，请查看日志', payload.exitCode === 0 ? 'ok' : 'err')
             }
         }
     }
@@ -650,6 +658,36 @@ $('#btn-schedule-remove').addEventListener('click', async () => {
         if (data.ok === false) throw new Error(data.error || '删除失败')
         toast(data.removed ? '定时任务已删除' : '原本就没有定时任务', 'ok')
         await loadSchedule()
+    } catch (error) {
+        toast(error.message, 'err')
+    }
+})
+
+/* ------------------------------------------------------------------ 浏览器内核 */
+
+async function loadBrowserStatus() {
+    const box = $('#browser-status')
+    try {
+        const data = await api('/api/browser')
+        if (data.installing) {
+            box.innerHTML = '<span class="tag warn">下载中</span> 进度见「运行日志」'
+        } else if (data.installed) {
+            box.innerHTML = `<span class="tag ok">已安装</span> ${esc(data.version)}`
+        } else {
+            box.innerHTML = '<span class="tag err">未安装</span> 首次运行前需要下载'
+        }
+        $('#btn-install-browser').disabled = Boolean(data.installing)
+    } catch (error) {
+        box.innerHTML = `<span class="tag err">检测失败</span> ${esc(error.message)}`
+    }
+}
+
+$('#btn-install-browser').addEventListener('click', async () => {
+    try {
+        const data = await post('/api/browser', {})
+        toast(data.message || '已开始下载', 'ok')
+        $('#btn-install-browser').disabled = true
+        setTimeout(loadBrowserStatus, 3000)
     } catch (error) {
         toast(error.message, 'err')
     }
