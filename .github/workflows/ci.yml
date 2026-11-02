@@ -1,0 +1,54 @@
+name: 构建检查
+
+# 只做校验，不产出任何东西：编译不过的提交在推上来时就红，
+# 不用等到打 tag 跑发布流水线才发现。
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: 安装依赖
+        working-directory: app
+        run: npm ci --include=dev
+
+      - name: 编译内核
+        working-directory: app
+        run: npm run build
+
+      - name: 类型检查（control-api）
+        working-directory: app
+        run: npm run check:api
+
+      - name: 语法检查（管理界面）
+        run: node --check manager/server.js

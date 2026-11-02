@@ -413,7 +413,7 @@ runtime\node\node.exe runtime\node\node_modules\npm\bin\npm-cli.js run install:b
 | 仅支持 Windows | 依赖批处理与任务计划程序；上游本身支持 Linux/Docker |
 | 定时任务需用户已登录 | 锁屏可以，注销或未登录不会运行（换取免密码、免管理员） |
 | 定时运行无实时日志 | 直接跑内核，不经管理界面；结果在「最近运行记录」 |
-| 日志不自动清理 | 每天约 10KB，长期运行需手动清理 `manager/logs/` |
+| 日志按天数自动清理 | 默认保留 30 天，可在「工具箱 → 保留天数」调整或改为永久保留 |
 | 管理界面无登录鉴权 | 依赖 localhost + Host/Origin 校验；不要改成监听 `0.0.0.0` |
 | 配置里的通知 token 会下发前端 | Telegram / Discord / ntfy 凭据需同源页面渲染表单，属设计取舍 |
 | 单账号同时只能跑一个实例 | 由 `.run.lock` 保证 |
@@ -423,8 +423,10 @@ runtime\node\node.exe runtime\node\node_modules\npm\bin\npm-cli.js run install:b
 
 ## 免责声明
 
-本项目仅用于学习自动化技术。使用自动化脚本可能违反 Microsoft 服务条款，存在账号被限制的风险，请自行评估。账号信息仅保存在本机，请勿上传到公开仓库。
+本项目仅用于学习自动化技术。使用自动化脚本可能违反 Microsoft 服务条款，存在账号被限制的风险，请自行评估。
+
+**本仓库不含任何账号数据。** 账号密码与登录会话只保存在你自己的机器上（`app/.env`、`app/sessions/`），二者均已列入 `.gitignore`，不会随仓库分发，也不会打进 Release 压缩包（打包脚本会做二次校验，发现敏感文件直接中止）。
 
 ## 许可
 
-上游为 GPL-3.0-or-later，本整合包遵循同一协议。
+上游为 GPL-3.0-or-later，本整合包遵循同一协议，全文见 [LICENSE](LICENSE)。
