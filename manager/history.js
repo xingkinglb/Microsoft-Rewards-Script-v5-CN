@@ -124,7 +124,8 @@ const REASON_TEXT = [
     ['rendered control was not found', '没找到活动入口'],
     ['no search multiplier is offered', '该账号没有搜索加成活动'],
     ['claimable bonus unknown', '读不到可领取的奖励'],
-    ['query source unavailable', '搜索词来源不可用']
+    ['query source unavailable', '搜索词来源不可用'],
+    ['quest list unavailable', '读不到打卡任务列表']
 ]
 
 function translateReason(text) {

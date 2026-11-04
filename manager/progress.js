@@ -11,6 +11,7 @@ const ACTIVITY_NAMES = [
     ['Daily set:', '每日任务'],
     ['More promotions:', '更多促销'],
     ['Punchcard child', '打卡任务'],
+    ['Punchcard data', '打卡数据'],
     ['Daily Check-In', '每日签到'],
     ['Read to Earn', '阅读赚分'],
     ['Search perk', '搜索加成'],
