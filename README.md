@@ -2,10 +2,24 @@
 
 基于 [TheNetsky/Microsoft-Rewards-Script](https://github.com/TheNetsky/Microsoft-Rewards-Script) **v5.0.0** 的 Windows 便携整合包，附带零依赖中文管理界面。
 
+## 下载
+
+**→ [点击下载最新版 Microsoft-Rewards-Script-v5.zip](https://github.com/xingkinglb/Microsoft-Rewards-Script-v5-CN/releases/latest/download/Microsoft-Rewards-Script-v5.zip)**
+
+约 67 MB，解压即用，内置 Node.js 运行时。**不用装 Git，也不用敲命令行。**
+
+| 想做什么 | 去哪里 |
+| --- | --- |
+| 直接下最新版 | [Microsoft-Rewards-Script-v5.zip](https://github.com/xingkinglb/Microsoft-Rewards-Script-v5-CN/releases/latest/download/Microsoft-Rewards-Script-v5.zip) |
+| 看更新了什么、找历史版本 | [全部发布版本](https://github.com/xingkinglb/Microsoft-Rewards-Script-v5-CN/releases) |
+| 第一次用，不会装 | [使用说明.md](使用说明.md) —— 零基础，照着点就行 |
+
+下载后解压到任意目录（路径别带特殊字符和中文），双击 **`启动管理界面.bat`** 即可。升级时把旧包的 `app\.env` 和 `app\sessions\` 复制到新包，账号和登录状态就都还在。
+
 > **核心设计：不改动上游源码。**
 > 中文界面与日志翻译全部在 `manager/` 层实现，`app/` 与上游保持字节级一致。上游发新版时只需替换 `app/` 目录再点一次「重新构建」，管理界面无需任何适配。
 
-**新手请直接看 [使用说明.md](使用说明.md)**，本文是技术文档。打包与发版流程见 [开发说明.md](开发说明.md)。
+**新手请直接看 [使用说明.md](使用说明.md)**，本文是技术文档。从源码打包与发版流程见 [开发说明.md](开发说明.md)。
 
 ---
 
@@ -56,7 +70,14 @@ Microsoft-Rewards-Script-v5/
 ├── manager/                    中文管理界面
 │   ├── server.js               本地服务（node:http，零第三方依赖）
 │   ├── run-wrapper.js          运行看门狗，父进程消失即结束任务树
-│   ├── scheduled-run.js        定时任务的无界面入口
+│   ├── scheduled-run.js        定时任务入口（--console 时显示进度窗口）
+│   ├── launch-scheduler.vbs    计划任务的启动器，按 console.flag 决定窗口可见
+│   ├── progress.js             把上游日志解析成中文进度行与结束汇总
+│   ├── history.js              启动时回填上次运行的余额、任务清单与日志
+│   ├── query-inject.js         运行前把中文搜索词补进编译产物
+│   ├── version-check.js        本整合包的版本检查（6 小时缓存）
+│   ├── version.json            当前版本号，发版时由 CI 按 tag 写入
+│   ├── data/search-queries.zh.json  中文搜索词表（204 条）
 │   ├── schedule.ps1            计划任务注册/查询/删除
 │   ├── public/                 前端（HTML / CSS / JS / i18n 词表）
 │   └── logs/                   运行日志
