@@ -213,15 +213,19 @@ function renderOverview() {
     renderRecent()
 }
 
-/** 单条任务：绿点完成 / 红点未确认 / 黄点本地区不提供 */
+/** 单条任务：绿点完成 / 红点未确认 / 黄点本地区不提供；未成成的附一行原因 */
 function taskRowHtml(task) {
     const state = ['done', 'pending', 'na'].includes(task.state) ? task.state : 'pending'
     const points = Number.isFinite(task.points) && task.points > 0 ? `+${task.points}` : ''
     const time = task.at ? formatShortTime(task.at) : ''
     const platform = task.platform ? `<span class="task-platform">${esc(task.platform)}</span>` : ''
+    const reason = task.reason ? `<span class="task-reason">${esc(task.reason)}</span>` : ''
     return `<div class="task-row ${state}">
         <span class="task-dot"></span>
-        <span class="task-name">${platform}${esc(task.label)}</span>
+        <span class="task-name">
+            <span class="task-label">${platform}${esc(task.label)}</span>
+            ${reason}
+        </span>
         <span class="task-points">${points}</span>
         <span class="task-time">${time}</span>
     </div>`

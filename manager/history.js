@@ -117,6 +117,24 @@ function pickAccountEnds(entries) {
 
 const PLATFORM_LABEL = { DESKTOP: '桌面', MOBILE: '移动' }
 
+/** 日志第四段的原因说明，常见的翻成中文，翻不出来的原样保留 */
+const REASON_TEXT = [
+    ['quota unavailable', '该地区不返回移动搜索配额'],
+    ['could not read current activation data', '读不到活动激活数据'],
+    ['rendered control was not found', '没找到活动入口'],
+    ['no search multiplier is offered', '该账号没有搜索加成活动'],
+    ['claimable bonus unknown', '读不到可领取的奖励'],
+    ['query source unavailable', '搜索词来源不可用']
+]
+
+function translateReason(text) {
+    const lower = String(text || '').toLowerCase()
+    for (const [from, to] of REASON_TEXT) {
+        if (lower.includes(from)) return to
+    }
+    return String(text || '').trim()
+}
+
 /**
  * 一条 ACTIVITY-RESULT 日志 → 任务条目。
  * state: done 完成 / pending 未确认 / na 本地区不提供
@@ -125,24 +143,29 @@ const PLATFORM_LABEL = { DESKTOP: '桌面', MOBILE: '移动' }
  * 「移动搜索配额」，那是同一个任务，不该显示成两条。
  */
 function buildTask(entry) {
-    const [rawName] = String(entry.message || '').split('|')
-    const label = translateActivity(rawName || '')
+    const parts = String(entry.message || '').split('|').map(part => part.trim())
+    const label = translateActivity(parts[0] || '')
     if (!label) return null
 
+    const message = entry.message || ''
     let state = ''
-    if (/\|\s*completed\s*\|/.test(entry.message)) state = 'done'
-    else if (/already enabled/.test(entry.message)) state = 'done'
-    else if (/completion not confirmed/.test(entry.message)) state = 'pending'
-    else if (/unavailable/.test(entry.message)) state = 'na'
+    if (/\|\s*completed\s*\|/.test(message)) state = 'done'
+    else if (/already enabled/.test(message)) state = 'done'
+    else if (/completion not confirmed/.test(message)) state = 'pending'
+    else if (/unavailable/.test(message)) state = 'na'
     if (!state) return null
 
-    const pointsRaw = /points earned:\s*(\d+)/.exec(entry.message)?.[1]
+    const pointsRaw = /points earned:\s*(\d+)/.exec(message)?.[1]
+    // 第 4 段才是原因，前两段是任务名和状态
+    const reason = parts.length > 3 ? translateReason(parts.slice(3).join('；')) : ''
+
     return {
         key: label,
         label,
         platform: PLATFORM_LABEL[entry.platform] || '',
         state,
         points: pointsRaw === undefined ? null : Number(pointsRaw),
+        reason: state === 'done' ? '' : reason,
         at: entry.ts
     }
 }
