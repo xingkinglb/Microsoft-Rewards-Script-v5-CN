@@ -15,7 +15,7 @@ const ACTIVITY_NAMES = [
     ['Read to Earn', '阅读赚分'],
     ['Search perk', '搜索加成'],
     ['Visual Search', '视觉搜索'],
-    ['Mobile search quota', '移动搜索'],
+    ['Mobile search quota', '移动搜索配额'],
     ['Streak protection', '连续保护'],
     ['Bonus point claim', '奖励领取'],
     ['Search', '搜索']

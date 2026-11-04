@@ -465,9 +465,10 @@ body {
 .task-platform {
     font-size: 10.5px;
     color: var(--muted);
-    border: 1px solid var(--border-soft);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
     border-radius: 4px;
-    padding: 0 4px;
+    padding: 0 5px;
     margin-right: 6px;
 }
 

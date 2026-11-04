@@ -120,6 +120,9 @@ const PLATFORM_LABEL = { DESKTOP: '桌面', MOBILE: '移动' }
 /**
  * 一条 ACTIVITY-RESULT 日志 → 任务条目。
  * state: done 完成 / pending 未确认 / na 本地区不提供
+ *
+ * 去重键只用任务名，不带平台：上游会在桌面会话和移动会话各报一次
+ * 「移动搜索配额」，那是同一个任务，不该显示成两条。
  */
 function buildTask(entry) {
     const [rawName] = String(entry.message || '').split('|')
@@ -134,11 +137,10 @@ function buildTask(entry) {
     if (!state) return null
 
     const pointsRaw = /points earned:\s*(\d+)/.exec(entry.message)?.[1]
-    const platform = PLATFORM_LABEL[entry.platform] || ''
     return {
-        key: `${label}|${platform}`,
+        key: label,
         label,
-        platform,
+        platform: PLATFORM_LABEL[entry.platform] || '',
         state,
         points: pointsRaw === undefined ? null : Number(pointsRaw),
         at: entry.ts
@@ -194,7 +196,15 @@ function loadHistory(logDir, options = {}) {
             const task = buildTask(entry)
             if (!task || !email) continue
             if (!perAccount.has(email)) perAccount.set(email, new Map())
-            perAccount.get(email).set(task.key, task)
+            const taskMap = perAccount.get(email)
+            const prev = taskMap.get(task.key)
+            if (prev) {
+                // 同名任务在桌面/移动都报过，平台合起来显示
+                const platforms = new Set(String(prev.platform || '').split(' · ').filter(Boolean))
+                if (task.platform) platforms.add(task.platform)
+                task.platform = [...platforms].join(' · ')
+            }
+            taskMap.set(task.key, task)
         }
 
         // 跨日志：新的日志先到，已经记过的任务不再被旧日志覆盖
