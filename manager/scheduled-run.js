@@ -282,6 +282,7 @@ logScheduler(`定时运行已启动 | PID=${child.pid} | 日志=${path.basename(
 
 // 进度窗口按行解析，文件流仍保持原样逐块写入
 let pendingLine = ''
+let pendingErr = ''
 
 child.stdout.on('data', chunk => {
     stream.write(chunk)
@@ -295,9 +296,28 @@ child.stdout.on('data', chunk => {
 child.stderr.on('data', chunk => {
     stream.write(chunk)
     if (!CONSOLE_MODE) return
-    const text = chunk.toString('utf8').trim()
-    if (text) out(` ! ${text.slice(0, 200)}`)
+    pendingErr += chunk.toString('utf8')
+    const lines = pendingErr.split(/\r?\n/)
+    pendingErr = lines.pop() ?? ''
+    for (const line of lines) printStderrLine(line)
 })
+
+/**
+ * 上游把 WARN / ERROR 写到 stderr，而不是 stdout。
+ * 能翻译的就走同一套进度格式，翻不出来的才原样打出来。
+ */
+function printStderrLine(line) {
+    if (!line.trim()) return
+    if (progress.translate(line)) {
+        printProgress(line)
+        return
+    }
+    if (readEarnLine) {
+        process.stdout.write('\n')
+        readEarnLine = false
+    }
+    out(` ! ${line.trim().slice(0, 160)}`)
+}
 
 function killChild() {
     if (finished || !child || !child.pid) return
@@ -353,6 +373,7 @@ function printSummary() {
 child.on('exit', code => {
     finished = true
     if (CONSOLE_MODE && pendingLine) printProgress(pendingLine)
+    if (CONSOLE_MODE && pendingErr) printStderrLine(pendingErr)
     stream.end()
     logScheduler(`定时运行结束 | exitCode=${code} | 日志=${path.basename(logFile)}`)
     clearRunLock(child.pid)

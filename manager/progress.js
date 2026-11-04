@@ -57,6 +57,9 @@ function createTranslator() {
     }
 
     let warnedQuerySource = false
+    // 搜索阶段：Searching 与 pointsGained 是两行，用序号和 query 串起来显示
+    let lastSearchIndex = 0
+    let lastSearchQuery = ''
 
     /**
      * @param {string} line 原始日志行
@@ -103,7 +106,7 @@ function createTranslator() {
                     return { ...base, text: '没有可用搜索词，桌面搜索将被跳过', mark: '⚠' }
                 }
                 return null
-            case 'SEARCH-BING':
+            case 'SEARCH-BING': {
                 if (/Starting Bing searches/.test(message)) {
                     const balance = /currentBalance=(\d+)/.exec(message)?.[1]
                     return { ...base, text: `开始 Bing 搜索${balance ? `（当前 ${balance} 分）` : ''}` }
@@ -113,11 +116,33 @@ function createTranslator() {
                     const mobile = /mobile=(\d+)/.exec(message)?.[1] ?? '?'
                     return { ...base, text: `剩余搜索分数 · 桌面 ${desktop} · 移动 ${mobile}` }
                 }
+                const started = /Searching \| search=(\d+) \| query="([^"]*)"/.exec(message)
+                if (started) {
+                    lastSearchIndex = Number(started[1])
+                    lastSearchQuery = started[2]
+                    return { ...base, text: `搜索 ${lastSearchIndex} 「${lastSearchQuery}」`, partial: true }
+                }
+                const gained = /searchPts=(\d+)\/(\d+)/.exec(message)
+                if (gained) {
+                    const batch = /batch pointsGained/.test(message) ? '（批量回报）' : ''
+                    const text = `搜索 ${lastSearchIndex} 「${lastSearchQuery}」 累计 ${gained[1]}/${gained[2]}${batch}`
+                    return { ...base, text, partial: true }
+                }
+                if (/Completed Bing searches/.test(message)) {
+                    const searches = /searches=(\d+)/.exec(message)?.[1]
+                    return { ...base, text: `桌面搜索阶段结束${searches ? ` · 共 ${searches} 次` : ''}`, mark: '✓' }
+                }
                 if (/No main search topics/.test(message) && !warnedQuerySource) {
                     warnedQuerySource = true
                     return { ...base, text: '没有可用搜索词，桌面搜索将被跳过', mark: '⚠' }
                 }
                 return null
+            }
+            case 'SEARCH-DELAY': {
+                const wait = /waitMs=(\d+)/.exec(message)?.[1]
+                if (!wait) return null
+                return { ...base, text: `等待 ${Math.round(Number(wait) / 1000)} 秒后继续搜索` }
+            }
             case 'READ-TO-EARN':
                 if (/points earned/.test(message)) {
                     const index = /read=(\d+)/.exec(message)?.[1] ?? '?'
@@ -135,8 +160,12 @@ function createTranslator() {
             case 'STREAKS':
                 if (/completed today/.test(message)) {
                     const streak = /streak=([\d/]+)/.exec(message)?.[1]
-                    const name = message.includes('Bing App') ? 'App 连续' : '每日任务连续'
-                    return { ...base, text: `${name}${streak ? ` ${streak}` : ''}`, mark: '✓' }
+                    const name = /Bing App/.test(message)
+                        ? 'App 连击'
+                        : /Bing Search/.test(message)
+                          ? '搜索连击'
+                          : '每日任务连击'
+                    return { ...base, text: `${where}${name}${streak ? ` ${streak}` : ''}`, mark: '✓' }
                 }
                 return null
             case 'ACCOUNT-END': {
