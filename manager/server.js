@@ -73,8 +73,8 @@ const state = {
     linesSource: 'live',
     /** 启动回填的上次运行日志文件名 */
     historyFile: null,
-    /** 各账号最近一次运行的余额，启动时从日志回填 */
-    balances: {}
+    /** 各账号最近一次运行的状态：余额、得分、任务清单，启动时从日志回填 */
+    accountHistory: {}
 }
 
 fs.mkdirSync(LOG_DIR, { recursive: true })
@@ -88,7 +88,7 @@ function restoreHistory() {
         const history = loadHistory(LOG_DIR)
         if (!history) return
         state.historyFile = history.file
-        state.balances = history.balances || {}
+        state.accountHistory = history.accounts || {}
         if (history.summary) state.lastSummary = history.summary
         if (history.lines.length) {
             state.lines = history.lines
@@ -1005,13 +1005,15 @@ const server = http.createServer(async (req, res) => {
                 config: readConfig(),
                 accounts: env.accounts.map(({ password, ...rest }) => {
                     const key = String(rest.email || '').trim().toLowerCase()
-                    const last = state.balances[key] || null
+                    const last = state.accountHistory[key] || null
                     return {
                         ...rest,
                         has_password: Boolean(password),
                         balance: last ? last.balance : null,
                         gained: last ? last.gained : null,
-                        lastRunAt: last ? last.at : null
+                        lastRunAt: last ? last.at : null,
+                        tasks: last ? last.tasks : [],
+                        taskStats: last ? last.stats : null
                     }
                 }),
                 summary: state.lastSummary,

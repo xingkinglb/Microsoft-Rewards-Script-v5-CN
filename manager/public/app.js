@@ -13,6 +13,7 @@ const state = {
     externalRun: null,
     summary: null,
     packVersion: null,
+    expandedAccounts: new Set(),
     autoScroll: true,
     translate: true,
     filter: '',
@@ -166,6 +167,7 @@ function renderOverview() {
         box.className = ''
         box.innerHTML = accounts
             .map(a => {
+                const key = String(a.email || '').trim().toLowerCase()
                 const hasBalance = formatPoints(a.balance) !== null
                 const points = hasBalance ? formatPoints(a.balance) : '—'
                 const gain = Number(a.gained)
@@ -173,19 +175,36 @@ function renderOverview() {
                     ? `<span class="tag ${gain > 0 ? 'ok' : ''}">${gain > 0 ? '+' : ''}${gain}</span>`
                     : ''
                 const when = a.lastRunAt ? `${formatShortTime(a.lastRunAt)} 完成` : '尚未运行'
-                return `<div class="switch-row" style="border-bottom:1px solid var(--border-soft)">
-                <div class="info">
-                    <strong>${esc(a.email || '未填写邮箱')}</strong>
-                    <span>地区 ${esc(a.geo_locale || 'auto')} · 语言 ${esc(a.lang_code || 'en')}${
+                const opened = state.expandedAccounts.has(key)
+                const stats = a.taskStats || {}
+                const bits = []
+                if (stats.done) bits.push(`<span class="task-count ok">${stats.done} 项完成</span>`)
+                if (stats.pending) bits.push(`<span class="task-count err">${stats.pending} 项未确认</span>`)
+                if (stats.na) bits.push(`<span class="task-count muted">${stats.na} 项不适用</span>`)
+                const tasks = Array.isArray(a.tasks) ? a.tasks : []
+
+                return `<div class="account-block" data-email="${esc(key)}">
+                <div class="switch-row account-head">
+                    <div class="info">
+                        <strong>${esc(a.email || '未填写邮箱')}</strong>
+                        <span>地区 ${esc(a.geo_locale || 'auto')} · 语言 ${esc(a.lang_code || 'en')}${
                     a.proxy_url ? ' · 代理已启用' : ''
                 } · ${when}${a.has_password ? '' : ' · 免密/TOTP'}</span>
+                    </div>
+                    <div class="account-right">
+                        <span class="account-points ${hasBalance ? '' : 'muted'}">${points}</span>
+                        <span class="account-unit">分</span>
+                        ${gainTag}
+                        <span class="caret${opened ? ' open' : ''}">▾</span>
+                    </div>
                 </div>
-                <div style="display:flex;align-items:center;gap:9px;flex-shrink:0">
-                    <span style="font-size:15px;font-weight:500;font-variant-numeric:tabular-nums;color:${
-                        hasBalance ? 'var(--text)' : 'var(--muted)'
-                    }">${points}</span>
-                    <span style="font-size:12px;color:var(--muted)">分</span>
-                    ${gainTag}
+                <div class="account-tasks"${opened ? '' : ' hidden'}>
+                    ${bits.length ? `<div class="task-summary">${bits.join(' · ')}</div>` : ''}
+                    ${
+                        tasks.length
+                            ? `<div class="task-list">${tasks.map(taskRowHtml).join('')}</div>`
+                            : '<div class="task-empty">最近几次运行没有记录到任务明细</div>'
+                    }
                 </div>
             </div>`
             })
@@ -193,6 +212,35 @@ function renderOverview() {
     }
     renderRecent()
 }
+
+/** 单条任务：绿点完成 / 红点未确认 / 黄点本地区不提供 */
+function taskRowHtml(task) {
+    const state = ['done', 'pending', 'na'].includes(task.state) ? task.state : 'pending'
+    const points = Number.isFinite(task.points) && task.points > 0 ? `+${task.points}` : ''
+    const time = task.at ? formatShortTime(task.at) : ''
+    const platform = task.platform ? `<span class="task-platform">${esc(task.platform)}</span>` : ''
+    return `<div class="task-row ${state}">
+        <span class="task-dot"></span>
+        <span class="task-name">${platform}${esc(task.label)}</span>
+        <span class="task-points">${points}</span>
+        <span class="task-time">${time}</span>
+    </div>`
+}
+
+/** 点击账号行展开/收起任务清单；重绘后靠 state.expandedAccounts 保持展开状态 */
+$('#overview-accounts').addEventListener('click', event => {
+    const head = event.target.closest('.account-head')
+    if (!head) return
+    const block = head.closest('.account-block')
+    const email = block?.dataset.email
+    const tasks = block?.querySelector('.account-tasks')
+    if (!email || !tasks) return
+    const willOpen = tasks.hidden
+    tasks.hidden = !willOpen
+    head.querySelector('.caret')?.classList.toggle('open', willOpen)
+    if (willOpen) state.expandedAccounts.add(email)
+    else state.expandedAccounts.delete(email)
+})
 
 function renderRecent() {
     const box = $('#recent-runs')

@@ -15,6 +15,7 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
+const { translateActivity } = require('./progress')
 
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g
 const LOG_RE = /^\[([^\]]+)\]\s+\[([^\]]+)\]\s+\[([A-Z]+)\]\s+(\S+)\s+\[([^\]]+)\]\s*([\s\S]*)$/
@@ -114,6 +115,44 @@ function pickAccountEnds(entries) {
     return out
 }
 
+const PLATFORM_LABEL = { DESKTOP: '桌面', MOBILE: '移动' }
+
+/**
+ * 一条 ACTIVITY-RESULT 日志 → 任务条目。
+ * state: done 完成 / pending 未确认 / na 本地区不提供
+ */
+function buildTask(entry) {
+    const [rawName] = String(entry.message || '').split('|')
+    const label = translateActivity(rawName || '')
+    if (!label) return null
+
+    let state = ''
+    if (/\|\s*completed\s*\|/.test(entry.message)) state = 'done'
+    else if (/already enabled/.test(entry.message)) state = 'done'
+    else if (/completion not confirmed/.test(entry.message)) state = 'pending'
+    else if (/unavailable/.test(entry.message)) state = 'na'
+    if (!state) return null
+
+    const pointsRaw = /points earned:\s*(\d+)/.exec(entry.message)?.[1]
+    const platform = PLATFORM_LABEL[entry.platform] || ''
+    return {
+        key: `${label}|${platform}`,
+        label,
+        platform,
+        state,
+        points: pointsRaw === undefined ? null : Number(pointsRaw),
+        at: entry.ts
+    }
+}
+
+function countTasks(tasks) {
+    const stats = { done: 0, pending: 0, na: 0 }
+    for (const task of tasks) {
+        if (stats[task.state] !== undefined) stats[task.state] += 1
+    }
+    return stats
+}
+
 /**
  * @param {string} logDir
  * @param {{maxLogs?: number, tailLines?: number}} options
@@ -121,33 +160,76 @@ function pickAccountEnds(entries) {
  */
 function loadHistory(logDir, options = {}) {
     const maxLogs = options.maxLogs ?? 8
+    const taskLogs = options.taskLogs ?? 3
     const tailLines = options.tailLines ?? 1000
 
     const logs = listRunLogs(logDir)
     if (!logs.length) return null
 
-    const balances = {}
+    const accounts = new Map()
     let summary = null
+    let firstEntries = null
 
-    // 从新到旧扫，账号余额每个只取第一次见到的（即最新那次）
+    // 从新到旧扫：账号余额只认第一次出现的（即最近一次跑过它），任务同理
     const scanCount = Math.min(logs.length, maxLogs)
     for (let i = 0; i < scanCount; i++) {
         const entries = readEntries(logs[i].path)
+        if (i === 0) firstEntries = entries
         if (!summary) summary = pickSummary(entries)
-        for (const account of pickAccountEnds(entries)) {
-            if (!account.email) continue
-            if (!balances[account.email]) balances[account.email] = account
+
+        for (const end of pickAccountEnds(entries)) {
+            if (!end.email) continue
+            if (accounts.has(end.email)) continue
+            accounts.set(end.email, { ...end, tasks: [], taskKeys: new Set() })
+        }
+
+        // 任务清单只回溯最近几份，避免把上周的题目也翻出来
+        if (i >= taskLogs) continue
+
+        // 同一份日志内：后出现的覆盖前面的（重试先失败后成功，要留成功那次）
+        const perAccount = new Map()
+        for (const entry of entries) {
+            if (entry.kind !== 'log' || entry.title !== 'ACTIVITY-RESULT') continue
+            const email = String(entry.user || '').trim().toLowerCase()
+            const task = buildTask(entry)
+            if (!task || !email) continue
+            if (!perAccount.has(email)) perAccount.set(email, new Map())
+            perAccount.get(email).set(task.key, task)
+        }
+
+        // 跨日志：新的日志先到，已经记过的任务不再被旧日志覆盖
+        for (const [email, taskMap] of perAccount) {
+            const account = accounts.get(email)
+            if (!account) continue
+            for (const [key, task] of taskMap) {
+                if (account.taskKeys.has(key)) continue
+                account.taskKeys.add(key)
+                account.tasks.push(task)
+            }
         }
     }
 
-    const latestEntries = readEntries(logs[0].path)
-    const lines = latestEntries.slice(-tailLines).map(entry => ({ ...entry, channel: 'history' }))
+    const accountMap = {}
+    for (const [email, account] of accounts) {
+        accountMap[email] = {
+            email: account.email,
+            balance: account.balance,
+            previous: account.previous,
+            gained: account.gained,
+            status: account.status,
+            at: account.at,
+            tasks: account.tasks,
+            stats: countTasks(account.tasks)
+        }
+    }
+
+    const lines = (firstEntries || []).slice(-tailLines).map(entry => ({ ...entry, channel: 'history' }))
 
     return {
         file: logs[0].name,
         at: summary?.at || new Date(logs[0].mtime).toISOString(),
         summary,
-        balances,
+        accounts: accountMap,
         lines
     }
 }

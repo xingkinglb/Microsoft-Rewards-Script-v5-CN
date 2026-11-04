@@ -191,4 +191,4 @@ function createTranslator() {
     return { translate, summary }
 }
 
-module.exports = { createTranslator }
+module.exports = { createTranslator, translateActivity }
