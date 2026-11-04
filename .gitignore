@@ -43,3 +43,6 @@ dist-package/
 
 # 管理界面设置（每台机器不同）
 manager/settings.json
+
+# 定时任务窗口标记（由设置派生，每台机器不同）
+manager/console.flag

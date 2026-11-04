@@ -15,6 +15,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const { spawn, spawnSync } = require('node:child_process')
+const { ensureChineseQueries } = require('./query-inject')
 
 const ROOT = path.resolve(__dirname, '..')
 const APP_DIR = path.join(ROOT, 'app')
@@ -27,6 +28,8 @@ const PKG_PATH = path.join(APP_DIR, 'package.json')
 const LOG_DIR = path.join(__dirname, 'logs')
 const PID_FILE = path.join(__dirname, '.run.pid')
 const SETTINGS_PATH = path.join(__dirname, 'settings.json')
+/** 定时任务窗口可见性标记，给 launch-scheduler.vbs 读，避免 VBS 解析 JSON */
+const CONSOLE_FLAG_PATH = path.join(__dirname, 'console.flag')
 const RUN_WRAPPER = path.join(__dirname, 'run-wrapper.js')
 const LOCK_FILE = path.join(__dirname, '.run.lock')
 const SCHEDULE_PS1 = path.join(__dirname, 'schedule.ps1')
@@ -254,7 +257,11 @@ function writeConfig(config) {
  * 管理界面自身的设置，存在 manager/settings.json。
  * 故意不放进 app/config.json —— 那是上游的配置契约，升级时会被覆盖。
  */
-const DEFAULT_SETTINGS = { logRetentionDays: 30 }
+const DEFAULT_SETTINGS = {
+    logRetentionDays: 30,
+    // 定时任务是否弹出进度窗口（切换后无需重新注册计划任务，由 VBS 每次读取）
+    scheduledProgressWindow: true
+}
 
 function readSettings() {
     try {
@@ -269,7 +276,17 @@ function readSettings() {
 function writeSettings(patch) {
     const next = { ...readSettings(), ...patch }
     fs.writeFileSync(SETTINGS_PATH, JSON.stringify(next, null, 4), 'utf8')
+    syncConsoleFlag(next)
     return next
+}
+
+/** 把窗口开关落成一个字符的文件，VBS 只认这个标记 */
+function syncConsoleFlag(settings = readSettings()) {
+    try {
+        fs.writeFileSync(CONSOLE_FLAG_PATH, settings.scheduledProgressWindow === false ? '0' : '1', 'utf8')
+    } catch {
+        /* 写不了就按默认（显示窗口）走 */
+    }
 }
 
 /** 日志目录当前占用 */
@@ -414,6 +431,17 @@ function startRun(options = {}) {
         const config = readConfig()
         config.headless = options.headless
         writeConfig(config)
+    }
+
+    // 补中文搜索词表：上游词表没有 zh 键，国区账号（locale=zh）会整段跳过桌面搜索
+    const injection = ensureChineseQueries()
+    if (!injection.ok) {
+        pushLine(`[${nowIso()}] [MAIN] [WARN] MAIN [QUERY-INJECT] 中文搜索词注入失败：${injection.reason}`, 'run')
+    } else if (injection.injected) {
+        pushLine(
+            `[${nowIso()}] [MAIN] [INFO] MAIN [QUERY-INJECT] 已补入中文搜索词 ${injection.injected} 条（共 ${injection.total} 条）`,
+            'run'
+        )
     }
 
     const logFile = path.join(LOG_DIR, `run_${timestamp()}.log`)
@@ -1078,19 +1106,37 @@ const server = http.createServer(async (req, res) => {
         if (pathname === '/api/log-settings') {
             if (req.method === 'GET') {
                 const settings = readSettings()
-                json(res, 200, { retentionDays: settings.logRetentionDays, stats: logStats() })
+                json(res, 200, {
+                    retentionDays: settings.logRetentionDays,
+                    scheduledProgressWindow: settings.scheduledProgressWindow !== false,
+                    stats: logStats()
+                })
                 return
             }
             const body = await readBody(req)
-            const days = Number(body.retentionDays)
-            if (!Number.isFinite(days) || days < 0) throw new Error('保留天数不合法')
-            writeSettings({ logRetentionDays: days })
-            const result = cleanupLogs()
+            const patch = {}
+            const notes = []
+
+            if (body.retentionDays !== undefined) {
+                const days = Number(body.retentionDays)
+                if (!Number.isFinite(days) || days < 0) throw new Error('保留天数不合法')
+                patch.logRetentionDays = days
+                notes.push(days === 0 ? '日志已设为永久保留' : `日志已设为保留 ${days} 天`)
+            }
+            if (typeof body.scheduledProgressWindow === 'boolean') {
+                patch.scheduledProgressWindow = body.scheduledProgressWindow
+                notes.push(body.scheduledProgressWindow ? '定时任务将显示进度窗口' : '定时任务将静默运行')
+            }
+            if (!Object.keys(patch).length) throw new Error('没有要更新的设置')
+
+            const next = writeSettings(patch)
+            const result = patch.logRetentionDays !== undefined ? cleanupLogs() : { stats: logStats() }
             json(res, 200, {
                 ok: true,
-                retentionDays: days,
+                retentionDays: next.logRetentionDays,
+                scheduledProgressWindow: next.scheduledProgressWindow !== false,
                 ...result,
-                message: days === 0 ? '已设为永久保留' : `已设为保留 ${days} 天`
+                message: notes.join('，')
             })
             return
         }
@@ -1175,6 +1221,8 @@ server.listen(PORT, HOST, () => {
     console.log(`  运行时  : ${NODE_EXE}`)
     console.log('')
     cleanupOrphan()
+    // 让 VBS 的窗口标记与 settings.json 对齐（settings 可能被手工改过）
+    syncConsoleFlag()
     // 启动时按保留策略清理一次旧日志
     try {
         const purged = cleanupLogs()

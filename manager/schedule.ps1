@@ -26,9 +26,10 @@ $ErrorActionPreference = 'Stop'
 # 保证中文错误信息以 UTF-8 输出，便于 Node 端正确解析
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
-$Root    = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$NodeExe = Join-Path $Root 'runtime\node\node.exe'
-$Runner  = Join-Path $Root 'manager\scheduled-run.js'
+$Root     = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$NodeExe  = Join-Path $Root 'runtime\node\node.exe'
+$Runner   = Join-Path $Root 'manager\scheduled-run.js'
+$Launcher = Join-Path $Root 'manager\launch-scheduler.vbs'
 
 function Write-Json($obj) {
     $obj | ConvertTo-Json -Compress -Depth 5 | Write-Output
@@ -50,13 +51,16 @@ try {
                 break
             }
             $info = Get-ScheduledTaskInfo -TaskName $TaskName
+            # 注意：变量名不能叫 $action —— PowerShell 变量不分大小写，会撞上参数 $Action
+            $firstAction = $task.Actions | Select-Object -First 1
             Write-Json @{
-                installed  = $true
-                taskName   = $TaskName
-                state      = [string]$task.State
-                nextRun    = Format-Time $info.NextRunTime
-                lastRun    = Format-Time $info.LastRunTime
-                lastResult = $info.LastTaskResult
+                installed   = $true
+                taskName    = $TaskName
+                state       = [string]$task.State
+                nextRun     = Format-Time $info.NextRunTime
+                lastRun     = Format-Time $info.LastRunTime
+                lastResult  = $info.LastTaskResult
+                viaLauncher = [bool]($firstAction -and $firstAction.Execute -match 'wscript')
             }
         }
 
@@ -65,7 +69,14 @@ try {
             if (-not (Test-Path $Runner))  { throw "找不到运行脚本：$Runner" }
             if ($Time -notmatch '^\d{1,2}:\d{2}$') { throw "时间格式应为 HH:mm，当前为 $Time" }
 
-            $taskAction = New-ScheduledTaskAction -Execute $NodeExe -Argument ('"{0}"' -f $Runner) -WorkingDirectory $Root
+            # 经 VBS 启动：窗口是否可见由 settings.json 的 scheduledProgressWindow 决定，
+            # 所以切换开关不需要重新注册计划任务。VBS 缺失时回退为直接跑 Node。
+            $wscript = Join-Path $env:SystemRoot 'System32\wscript.exe'
+            if (Test-Path $Launcher) {
+                $taskAction = New-ScheduledTaskAction -Execute $wscript -Argument ('"{0}"' -f $Launcher) -WorkingDirectory $Root
+            } else {
+                $taskAction = New-ScheduledTaskAction -Execute $NodeExe -Argument ('"{0}"' -f $Runner) -WorkingDirectory $Root
+            }
             $trigger    = New-ScheduledTaskTrigger -Daily -At $Time
             $settings   = New-ScheduledTaskSettingsSet `
                             -StartWhenAvailable `

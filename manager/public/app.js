@@ -613,6 +613,9 @@ async function loadSchedule() {
             return
         }
         const lines = [`<span class="tag ok">已启用</span> ${data.state === 'Ready' ? '等待触发' : esc(data.state)}`]
+        if (data.viaLauncher === false) {
+            lines.push('<span class="tag warn">旧启动方式</span> 点一次「启用 / 更新时间」后，进度窗口开关才会生效')
+        }
         if (data.nextRun) lines.push(`下次运行：<b style="color:var(--text)">${esc(data.nextRun)}</b>`)
         if (data.lastRun) {
             lines.push(`上次运行：${esc(data.lastRun)} ${describeResult(data.lastResult)}`)
@@ -710,10 +713,25 @@ async function loadLogSettings() {
         const policy = days > 0 ? `保留 ${days} 天` : '永久保留'
         box.innerHTML = `${data.stats.files} 个文件 · ${formatBytes(data.stats.bytes)} · ${policy}`
         $('#log-retention').value = String(days)
+        $('#schedule-window').classList.toggle('on', data.scheduledProgressWindow === true)
     } catch (error) {
         box.innerHTML = `<span class="tag err">读取失败</span> ${esc(error.message)}`
     }
 }
+
+$('#schedule-window').addEventListener('click', async () => {
+    const sw = $('#schedule-window')
+    const next = !sw.classList.contains('on')
+    sw.classList.toggle('on', next)
+    try {
+        const data = await post('/api/log-settings', { scheduledProgressWindow: next })
+        toast(`已保存：${data.message}`, 'ok')
+        await loadSchedule()
+    } catch (error) {
+        sw.classList.toggle('on', !next)
+        toast(error.message, 'err')
+    }
+})
 
 $('#log-retention').addEventListener('change', async event => {
     const days = Number(event.target.value)
