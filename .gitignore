@@ -49,3 +49,6 @@ manager/console.flag
 
 # 版本检查缓存
 manager/update-state.json
+
+# 发版时生成的 Release 说明（由 scripts/release-notes.js 产出）
+release-notes.md
