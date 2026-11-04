@@ -12,6 +12,7 @@ const state = {
     building: false,
     externalRun: null,
     summary: null,
+    packVersion: null,
     autoScroll: true,
     translate: true,
     filter: '',
@@ -118,33 +119,76 @@ function setStatus() {
     $('#btn-build').disabled = state.running || state.building || Boolean(state.externalRun)
 }
 
+/** 千分位；拿不到数字返回 null，交给调用方决定显示什么 */
+function formatPoints(value) {
+    const n = Number(value)
+    return Number.isFinite(n) ? n.toLocaleString('zh-CN') : null
+}
+
+function formatShortTime(iso) {
+    if (!iso) return ''
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return ''
+    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
 function renderOverview() {
     const s = state.summary
-    $('#s-balance').innerHTML = (s?.currentBalance ?? '—') + '<small>分</small>'
-    $('#s-gained').innerHTML = (s?.pointsGained ?? '—') + '<small>分</small>'
+    const accounts = state.accounts || []
+    const multi = accounts.length > 1
+    const withData = accounts.filter(a => formatPoints(a.balance) !== null)
+
+    // 当前余额 / 本次获得：上游的 RUN-END 本身就是全部账号的合计，多账号直接用它
+    const balance = formatPoints(s?.currentBalance)
+    const gained = formatPoints(s?.pointsGained)
+
+    $('#s-balance').innerHTML = (balance ?? '—') + '<small>分</small>'
+    $('#s-gained').innerHTML = (gained !== null ? '+' + gained : '—') + '<small>分</small>'
     $('#s-runtime').innerHTML = (s?.runtimeMinutes ?? '—') + '<small>分钟</small>'
+
     const mode = state.config.rewardsMode === 'api' ? 'API' : '浏览器'
-    $('#s-mode').textContent = `${state.accounts.length} 个 · ${mode}`
+    $('#s-mode').textContent = `${accounts.length} 个 · ${mode}`
+
+    // 副标题只在多账号时出现，单账号保持原样不啰嗦
+    const scope = multi && withData.length ? `${withData.length} 个账号合计` : ''
+    $('#s-balance-sub').textContent = scope
+    $('#s-gained-sub').textContent = scope
+    $('#s-runtime-sub').textContent = multi ? '串行累计' : ''
+    $('#s-mode-sub').textContent = multi && withData.length < accounts.length ? `${accounts.length - withData.length} 个尚未运行` : ''
+
     $('#overview-time').textContent = s?.at ? '上次完成：' + new Date(s.at).toLocaleString('zh-CN') : '尚未运行'
 
     const box = $('#overview-accounts')
-    if (!state.accounts.length) {
+    if (!accounts.length) {
         box.className = 'empty'
         box.textContent = '暂无账号，请到「账号配置」添加'
     } else {
         box.className = ''
-        box.innerHTML = state.accounts
-            .map(
-                a => `<div class="switch-row" style="border-bottom:1px solid var(--border-soft)">
+        box.innerHTML = accounts
+            .map(a => {
+                const hasBalance = formatPoints(a.balance) !== null
+                const points = hasBalance ? formatPoints(a.balance) : '—'
+                const gain = Number(a.gained)
+                const gainTag = Number.isFinite(gain) && hasBalance
+                    ? `<span class="tag ${gain > 0 ? 'ok' : ''}">${gain > 0 ? '+' : ''}${gain}</span>`
+                    : ''
+                const when = a.lastRunAt ? `${formatShortTime(a.lastRunAt)} 完成` : '尚未运行'
+                return `<div class="switch-row" style="border-bottom:1px solid var(--border-soft)">
                 <div class="info">
                     <strong>${esc(a.email || '未填写邮箱')}</strong>
                     <span>地区 ${esc(a.geo_locale || 'auto')} · 语言 ${esc(a.lang_code || 'en')}${
                     a.proxy_url ? ' · 代理已启用' : ''
-                }</span>
+                } · ${when}${a.has_password ? '' : ' · 免密/TOTP'}</span>
                 </div>
-                <span class="tag ${a.has_password ? 'ok' : 'warn'}">${a.has_password ? '密码已配置' : '免密/TOTP'}</span>
+                <div style="display:flex;align-items:center;gap:9px;flex-shrink:0">
+                    <span style="font-size:15px;font-weight:500;font-variant-numeric:tabular-nums;color:${
+                        hasBalance ? 'var(--text)' : 'var(--muted)'
+                    }">${points}</span>
+                    <span style="font-size:12px;color:var(--muted)">分</span>
+                    ${gainTag}
+                </div>
             </div>`
-            )
+            })
             .join('')
     }
     renderRecent()
@@ -243,6 +287,7 @@ async function loadLogs() {
     clearLogs()
     data.lines.forEach(renderLine)
     updateLogCount()
+    renderLogSource(data.source, data.file)
     if (state.autoScroll) {
         const box = $('#log-box')
         box.scrollTop = box.scrollHeight
@@ -250,6 +295,19 @@ async function loadLogs() {
     if (data.summary) {
         state.summary = data.summary
         renderOverview()
+    }
+}
+
+/** 日志来自启动回填时挂个标签，跑起来之后自然隐藏 */
+function renderLogSource(source, file) {
+    const tag = $('#log-source')
+    if (!tag) return
+    if (source === 'history' && file) {
+        tag.style.display = ''
+        tag.style.color = 'var(--accent)'
+        tag.textContent = `历史 · ${file}`
+    } else {
+        tag.style.display = 'none'
     }
 }
 
@@ -265,7 +323,10 @@ function connectStream() {
             }
         } else if (payload.type === 'state') {
             state.running = Boolean(payload.running)
+            if (payload.running) renderLogSource('live', null)
             setStatus()
+        } else if (payload.type === 'version') {
+            renderPackVersion(payload.version)
         } else if (payload.type === 'build') {
             state.building = Boolean(payload.running)
             setStatus()
@@ -764,8 +825,10 @@ async function loadState() {
     state.building = data.building
     state.externalRun = data.externalRun || null
     state.summary = data.summary
-    $('#app-version').textContent = data.version
+    $('#app-version').textContent = data.packVersion?.current || data.version
+    $('#core-version').textContent = 'v' + data.version
     $('#node-version').textContent = data.nodeVersion
+    renderPackVersion(data.packVersion)
     setStatus()
     renderOverview()
     renderAccounts()
@@ -921,6 +984,51 @@ $('#btn-shutdown').addEventListener('click', async () => {
             '<p style="color:#8b93a3;font-size:13px">可以关闭此页面了。<br>需要再次使用时，双击项目目录下的「启动管理界面.bat」。</p></div></div>'
     } catch (error) {
         toast(error.message, 'err')
+    }
+})
+
+/** 本整合包的版本状态。下载入口统一显示在 #update-result 里 */
+function renderPackVersion(info) {
+    if (!info) return
+    state.packVersion = info
+    $('#pack-version').textContent = 'v' + (info.current || '未知')
+
+    const el = $('#pack-version-state')
+    if (info.dev) {
+        el.textContent = '开发版，不参与更新比较'
+    } else if (info.updateAvailable && info.latest) {
+        el.innerHTML = `<span style="color: var(--warn)">有新版本 ${esc(info.latest)}</span>`
+    } else if (info.latest) {
+        const when = info.checkedAt ? ` · ${formatShortTime(info.checkedAt)} 检查` : ''
+        el.textContent = `已是最新${when}`
+    } else {
+        el.textContent = info.message || '尚未检查'
+    }
+
+    const box = $('#update-result')
+    if (info.updateAvailable && info.url) {
+        box.innerHTML = `<div class="tag warn">本整合包有新版本 ${esc(info.latest)}</div>
+            <div style="margin-top: 8px; font-size: 12px; color: var(--muted); line-height: 1.9">
+            <a href="${esc(info.url)}" target="_blank" rel="noopener" style="color: var(--accent)">查看发布页并下载</a>
+            · 解压新包后把旧的 <code>app\\.env</code> 与 <code>app\\sessions\\</code> 复制过去即可</div>`
+    }
+}
+
+$('#btn-check-pack').addEventListener('click', async () => {
+    const btn = $('#btn-check-pack')
+    if (btn.disabled) return
+    btn.disabled = true
+    btn.textContent = '检查中…'
+    try {
+        const data = await post('/api/check-package', {})
+        renderPackVersion(data)
+        if (!data.ok) toast('检查失败：' + (data.message || '网络不可用'), 'err')
+        else toast(data.updateAvailable ? `发现新版本 ${data.latest}` : '已是最新版本', data.updateAvailable ? '' : 'ok')
+    } catch (error) {
+        toast('检查失败：' + error.message, 'err')
+    } finally {
+        btn.disabled = false
+        btn.textContent = '检查更新'
     }
 })
 

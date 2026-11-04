@@ -43,6 +43,12 @@ jobs:
           Remove-Item node-tmp -Recurse -Force
           & "runtime\node\node.exe" --version
 
+      - name: 写入版本号
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node -e "const fs=require('fs');fs.writeFileSync('manager/version.json',JSON.stringify({version:process.env.TAG.replace(/^v/,'')},null,4)+'\n','utf8')"
+
       - name: 打包（含安全检查）
         run: node scripts/package.js --zip
 

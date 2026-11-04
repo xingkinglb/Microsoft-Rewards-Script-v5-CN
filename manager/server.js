@@ -16,6 +16,8 @@ const os = require('node:os')
 const path = require('node:path')
 const { spawn, spawnSync } = require('node:child_process')
 const { ensureChineseQueries } = require('./query-inject')
+const { loadHistory } = require('./history')
+const { getVersionInfo, checkPackVersion } = require('./version-check')
 
 const ROOT = path.resolve(__dirname, '..')
 const APP_DIR = path.join(ROOT, 'app')
@@ -66,10 +68,38 @@ const state = {
     lines: [],
     clients: new Set(),
     lastSummary: null,
-    buildLines: []
+    buildLines: [],
+    /** 日志缓冲区来源：history（启动回填）或 live（本次进程产出） */
+    linesSource: 'live',
+    /** 启动回填的上次运行日志文件名 */
+    historyFile: null,
+    /** 各账号最近一次运行的余额，启动时从日志回填 */
+    balances: {}
 }
 
 fs.mkdirSync(LOG_DIR, { recursive: true })
+
+/**
+ * 启动回填：界面重启后概览和日志页不该是空的。
+ * 读最近几份 run_*.log，恢复概览汇总、各账号余额、以及最新一份日志的内容。
+ */
+function restoreHistory() {
+    try {
+        const history = loadHistory(LOG_DIR)
+        if (!history) return
+        state.historyFile = history.file
+        state.balances = history.balances || {}
+        if (history.summary) state.lastSummary = history.summary
+        if (history.lines.length) {
+            state.lines = history.lines
+            state.linesSource = 'history'
+        }
+    } catch {
+        /* 回填失败就当没有历史，不影响启动 */
+    }
+}
+
+restoreHistory()
 
 // ---------------------------------------------------------------- 工具
 
@@ -432,6 +462,11 @@ function startRun(options = {}) {
         config.headless = options.headless
         writeConfig(config)
     }
+
+    // 新的一次运行开始，丢掉启动时回填的上次日志
+    state.lines = []
+    state.linesSource = 'live'
+    state.historyFile = null
 
     // 补中文搜索词表：上游词表没有 zh 键，国区账号（locale=zh）会整段跳过桌面搜索
     const injection = ensureChineseQueries()
@@ -968,11 +1003,21 @@ const server = http.createServer(async (req, res) => {
                 exitCode: state.run?.exitCode ?? null,
                 mode: state.run?.mode || null,
                 config: readConfig(),
-                accounts: env.accounts.map(({ password, ...rest }) => ({
-                    ...rest,
-                    has_password: Boolean(password)
-                })),
+                accounts: env.accounts.map(({ password, ...rest }) => {
+                    const key = String(rest.email || '').trim().toLowerCase()
+                    const last = state.balances[key] || null
+                    return {
+                        ...rest,
+                        has_password: Boolean(password),
+                        balance: last ? last.balance : null,
+                        gained: last ? last.gained : null,
+                        lastRunAt: last ? last.at : null
+                    }
+                }),
                 summary: state.lastSummary,
+                packVersion: getVersionInfo(),
+                historyFile: state.historyFile,
+                linesSource: state.linesSource,
                 nodeVersion: process.version
             })
             return
@@ -1061,7 +1106,18 @@ const server = http.createServer(async (req, res) => {
         // --- 日志
         if (pathname === '/api/logs') {
             const limit = Number(url.searchParams.get('limit') || 1000)
-            json(res, 200, { lines: state.lines.slice(-limit), summary: state.lastSummary })
+            json(res, 200, {
+                lines: state.lines.slice(-limit),
+                summary: state.lastSummary,
+                source: state.linesSource,
+                file: state.historyFile
+            })
+            return
+        }
+        if (pathname === '/api/check-package' && req.method === 'POST') {
+            const info = await checkPackVersion({ force: true })
+            broadcast({ type: 'version', version: info })
+            json(res, 200, info)
             return
         }
         if (pathname === '/api/logs/stream') {
@@ -1223,6 +1279,10 @@ server.listen(PORT, HOST, () => {
     cleanupOrphan()
     // 让 VBS 的窗口标记与 settings.json 对齐（settings 可能被手工改过）
     syncConsoleFlag()
+    // 启动后静默查一次本包新版：6 小时内复用缓存，失败不打扰，查到再推给界面
+    checkPackVersion()
+        .then(info => broadcast({ type: 'version', version: info }))
+        .catch(() => {})
     // 启动时按保留策略清理一次旧日志
     try {
         const purged = cleanupLogs()

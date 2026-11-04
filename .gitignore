@@ -46,3 +46,6 @@ manager/settings.json
 
 # 定时任务窗口标记（由设置派生，每台机器不同）
 manager/console.flag
+
+# 版本检查缓存
+manager/update-state.json

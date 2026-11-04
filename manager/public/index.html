@@ -66,18 +66,22 @@
                             <div class="stat">
                                 <div class="label">当前余额</div>
                                 <div class="value accent" id="s-balance">—<small>分</small></div>
+                                <div class="stat-sub" id="s-balance-sub"></div>
                             </div>
                             <div class="stat">
                                 <div class="label">本次获得</div>
                                 <div class="value ok" id="s-gained">—<small>分</small></div>
+                                <div class="stat-sub" id="s-gained-sub"></div>
                             </div>
                             <div class="stat">
                                 <div class="label">运行耗时</div>
                                 <div class="value" id="s-runtime">—<small>分钟</small></div>
+                                <div class="stat-sub" id="s-runtime-sub"></div>
                             </div>
                             <div class="stat">
                                 <div class="label">账号 / 模式</div>
                                 <div class="value" id="s-mode" style="font-size: 15px">—</div>
+                                <div class="stat-sub" id="s-mode-sub"></div>
                             </div>
                         </div>
                     </div>
@@ -85,7 +89,7 @@
                     <div class="card">
                         <div class="card-head">
                             <h2>账号状态</h2>
-                            <span class="desc">数据来自 .env 配置</span>
+                            <span class="desc">余额取自最近一次运行</span>
                         </div>
                         <div id="overview-accounts" class="empty">暂无账号</div>
                     </div>
@@ -106,6 +110,7 @@
                             <input type="text" id="log-filter" placeholder="过滤关键字…" style="width: 200px" />
                         </label>
                         <div class="spacer"></div>
+                        <span class="tag" id="log-source" style="display: none"></span>
                         <span class="tag" id="log-count">0 行</span>
                     </div>
                     <div class="log-box" id="log-box"></div>
@@ -223,15 +228,31 @@
                             <button class="btn" id="btn-config-sync">同步配置默认值</button>
                             <button class="btn" id="btn-open-app">打开程序目录</button>
                             <button class="btn" id="btn-open-logs">打开日志目录</button>
-                            <button class="btn" id="btn-check-update">检查上游更新</button>
                             <button class="btn danger" id="btn-shutdown">停止管理界面服务</button>
                         </div>
-                        <div id="update-result" style="margin-top: 14px"></div>
                     </div>
 
                     <div class="card">
-                        <div class="card-head"><h2>关于</h2></div>
-                        <div style="font-size: 12.5px; color: var(--muted); line-height: 2">
+                        <div class="card-head">
+                            <h2>关于</h2>
+                            <span class="desc">本整合包的版本在启动时自动检查一次</span>
+                        </div>
+                        <div class="switch-row" style="border-top: none">
+                            <div class="info">
+                                <strong>本整合包 <span id="pack-version" style="color: var(--accent)">—</span></strong>
+                                <span id="pack-version-state">读取中…</span>
+                            </div>
+                            <button class="btn sm" id="btn-check-pack">检查更新</button>
+                        </div>
+                        <div class="switch-row">
+                            <div class="info">
+                                <strong>上游内核 <span id="core-version" style="color: var(--muted)">—</span></strong>
+                                <span id="core-version-state">数据来自 app/package.json</span>
+                            </div>
+                            <button class="btn sm" id="btn-check-update">检查更新</button>
+                        </div>
+                        <div id="update-result" style="margin-top: 12px"></div>
+                        <div style="font-size: 12.5px; color: var(--muted); line-height: 2; margin-top: 14px; border-top: 1px solid var(--border-soft); padding-top: 12px">
                             程序内核：<code>app/</code> — 上游 TheNetsky v5.0.0，<b>未改动源码</b><br />
                             运行时：<code>runtime/node/</code> — Node.js 24 便携版，不影响系统环境<br />
                             管理界面：<code>manager/</code> — 中文界面与日志翻译均在此层完成<br />
