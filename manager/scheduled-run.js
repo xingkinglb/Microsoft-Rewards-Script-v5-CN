@@ -20,6 +20,7 @@ const { spawn } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
 const { ensureChineseQueries } = require('./query-inject')
+const { patchBingOrigin } = require('./patch-dist')
 const { createTranslator } = require('./progress')
 
 const ROOT = path.resolve(__dirname, '..')
@@ -246,6 +247,10 @@ logScheduler(
         ? `中文搜索词表 | ${injection.injected ? `新增 ${injection.injected} 条` : '已存在'} | 共 ${injection.total} 条`
         : `中文搜索词表注入失败：${injection.reason}`
 )
+
+/** 容忍 Bing 中国区重定向（cn.bing.com），否则搜索整段超时 */
+const bingPatch = patchBingOrigin()
+logScheduler(bingPatch.ok ? `Bing 中国区补丁 | ${bingPatch.reason}` : `Bing 补丁失败：${bingPatch.reason}`)
 
 fs.mkdirSync(LOG_DIR, { recursive: true })
 const logFile = path.join(LOG_DIR, `run_${timestamp()}.log`)

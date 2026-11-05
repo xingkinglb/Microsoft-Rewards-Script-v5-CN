@@ -16,6 +16,7 @@ const os = require('node:os')
 const path = require('node:path')
 const { spawn, spawnSync } = require('node:child_process')
 const { ensureChineseQueries } = require('./query-inject')
+const { patchBingOrigin } = require('./patch-dist')
 const { loadHistory } = require('./history')
 const { getVersionInfo, checkPackVersion } = require('./version-check')
 
@@ -477,6 +478,12 @@ function startRun(options = {}) {
             `[${nowIso()}] [MAIN] [INFO] MAIN [QUERY-INJECT] 已补入中文搜索词 ${injection.injected} 条（共 ${injection.total} 条）`,
             'run'
         )
+    }
+
+    // 容忍 Bing 中国区重定向（cn.bing.com），否则浏览器搜索整段超时
+    const bingPatch = patchBingOrigin()
+    if (!bingPatch.ok) {
+        pushLine(`[${nowIso()}] [MAIN] [WARN] MAIN [BING-PATCH] Bing 补丁失败：${bingPatch.reason}`, 'run')
     }
 
     const logFile = path.join(LOG_DIR, `run_${timestamp()}.log`)
